@@ -1,0 +1,14 @@
+{
+  "projects": {
+    "default": "testing-management-syste-c5d9a"
+  },
+  "targets": {
+    "testing-management-syste-c5d9a": {
+      "hosting": {
+        "main": [
+          "fa-testing"
+        ]
+      }
+    }
+  }
+}

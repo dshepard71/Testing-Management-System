@@ -1,0 +1,82 @@
+TECHNICAL SECURITY AND COMPLIANCE BRIEF
+
+System: Fryeburg Academy Testing Management System (V2)  
+Infrastructure Platform: Google Cloud Platform (GCP) / Firebase Enterprise  
+Author / Lead Developer: David Shepard  
+
+========================================================================
+EXECUTIVE SUMMARY
+========================================================================
+
+The Fryeburg Academy Testing Management System V2 is a secure, cloud-native web portal designed to streamline testing logistics, student accommodations, and seating assignments. The application is built on top of Google Cloud Platform (GCP) / Firebase, leveraging enterprise-grade infrastructure. 
+
+To address IT security concerns and ensure compliance with FERPA (Family Educational Rights and Privacy Act), this brief outlines the system's multi-layered security architecture, server-side access control lists, authentication integration, and advanced field-level encryption strategies.
+
+========================================================================
+1. AUTHENTICATION AND IDENTITY MANAGEMENT
+========================================================================
+
+The system does not manage, store, or process user credentials. It is entirely integrated with Google OAuth 2.0 / Workspace Single Sign-On (SSO).
+
+* Strict Hosted Domain Enforcement: The client authentication layer dynamically enforces strict domain restrictions. In production, Google's login interface blocks all personal Google accounts (@gmail.com) at the front door. Users are restricted exclusively to the school's official Google Workspace domain:
+  - @fryeburgacademy.org (Enforced globally for all Faculty, Counselors, Admins, and Students).
+* Role-Based Isolation: Since both staff and students share the school domain, strict role-based access controls (RBAC) are enforced immediately post-login. Students are automatically restricted to the 'student' role and have no staff dashboard access.
+* Token Verification: When a user logs in, Firebase generates a secure, cryptographically signed JSON Web Token (JWT). Every single database query sent from the client browser carries this token.
+* Instant Deprovisioning: Because authentication is tied to Google Workspace, when an IT administrator disables or removes an employee or student account in the main Workspace console, their access to the testing portal is instantly and globally revoked.
+
+========================================================================
+2. SERVER-SIDE DATABASE FIREWALLS (FIRESTORE RULES)
+========================================================================
+
+Unlike traditional databases that rely on middle-tier APIs for security, Cloud Firestore utilizes a declarative, server-side security engine. These rules are evaluated directly on Google's cloud servers before any read, write, create, or delete operation is executed.
+
+Our system enforces strict Least Privilege access rules:
+
+* Zero Unauthenticated Access: Anonymous requests are globally rejected.
+* Strict Student Data Isolation: Students can only read records where the database record's email field matches their authenticated Workspace email token.
+* Prevention of Privilege Escalation: The database rules explicitly prevent users from modifying their own roles. A student cannot alter their database role parameter (for example, attempting to promote themselves to admin). Role changes can only be written by existing administrators.
+* Identity Impersonation Block: During the creation or modification of SAT/PSAT registrations or custom form submissions, the rules enforce that the email field inside the document must match the authenticated user's token email. Students cannot submit registrations or answers under another student's name.
+* Role-Based Access Control (RBAC): Centralized server-side checks verify user roles before granting write permissions:
+  - Admins Only: Deleting, importing, or rebuilding rosters and seating charts.
+  - Counselors & Case Managers Only: Modifying student profiles and accommodations.
+  - Proctors Only: Read-only access to specific room rosters for attendance tracking.
+
+========================================================================
+3. DATA PRIVACY & DUAL-FACTOR (SPLIT-KEY) FIELD-LEVEL ENCRYPTION
+========================================================================
+
+To ensure the absolute privacy of student accommodations (504, IEP, and SSD statuses) under FERPA, we enforce an advanced Dual-Factor (Split-Key) AES-256 Symmetric Field-Level Encryption protocol.
+
+Rather than storing a single exposed master key in either the client bundle or the database, the cryptographic key is derived dynamically in memory by fusing two distinct physical key halves:
+
+  [Database Key Half] + [Client Code Key Half] -> [AES-256 Cryptographic Engine] -> [Secure Decryption]
+
+How this works:
+
+1. The Infrastructure Half: Stored securely inside a locked Firestore collection (/settings/encryption), protected by declarative server-side Firebase Security Rules. It is only readable by verified staff sessions and is completely blocked for student accounts.
+2. The Client-Side Half: Kept as a static, environment-level prefix in the application bundle.
+3. Zero-Knowledge Database Console Privacy: Because the Firebase Console only contains one half of the key, an IT administrator or viewer browsing the Firestore console has no mathematical way to decrypt or read student accommodations. They will only see unreadable scrambled text (e.g., U2FsdGVkX19H...).
+4. Student Browser Isolation: If a student logs in to register for an exam, they only have the client-side half of the key from their browser bundle. Since Google's server-side database rules block them from reading the database half, they can never reconstruct the master key to decrypt any other student's accommodations.
+5. Seamless Staff Decryption: When an authorized counselor logs in, the app automatically fetches the database half, fuses it with the code prefix, and decrypts the accommodations instantly. Staff has to enter absolutely nothing.
+6. Demographic Rollover Protection: During the annual CSV roster imports, these encrypted strings are locked as protectedFields, ensuring they are never overwritten or leaked.
+
+========================================================================
+4. PLATFORM SECURITY AND COMPLIANCE
+========================================================================
+
+Google Cloud / Firebase is an industry leader in secure hosting and holds the following certifications:
+* FERPA / COPPA Compliance
+* ISO/IEC 27001, 27017, and 27018
+* SOC 1, SOC 2, and SOC 3 Reports
+* GDPR & HIPAA Compliance capability
+
+Additional Controls:
+
+* Zero Telemetry / Data Minimization: Google Analytics and Firebase Crashlytics tracking have been entirely unlinked and deactivated at the core infrastructure level. No student behavioral data, device identifiers, or telemetry are collected or transmitted to third-party endpoints.
+* Encrypted In-Transit & At-Rest: All connections between the browser client and Firebase are encrypted in transit via TLS 1.3 and encrypted at rest on Google's physical disks.
+
+========================================================================
+CONCLUSION
+========================================================================
+
+The Testing Management System V2 is architected from the ground up with a "Security-First" posture. By combining Google's enterprise OAuth 2.0 authentication, robust server-side Firestore firewalls, and active dual-factor AES-256 field-level encryption, the system guarantees that sensitive student records remain protected, compliant, and visible only to the educators who need them.

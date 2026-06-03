@@ -1,0 +1,183 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ==========================================
+    // HELPER FUNCTIONS (Optimized)
+    // ==========================================
+    
+    // Helper function to get current user role document
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // Check if email is in admin_emails list
+    function isInAdminList() {
+      return request.auth.token.email in get(/databases/$(database)/documents/settings/admin_users).data.emails;
+    }
+
+    // Checking roles securely
+    function isAdmin() {
+      return request.auth != null && (getUserData().role == 'admin' || isInAdminList());
+    }
+
+    function isCounselor() {
+      return request.auth != null && getUserData().role == 'counselor';
+    }
+
+    function isBusiness() {
+      return request.auth != null && getUserData().role == 'business';
+    }
+
+    function isProctor() {
+      return request.auth != null && getUserData().role == 'proctor';
+    }
+
+    function isCaseManager() {
+      return request.auth != null && getUserData().role == 'case_manager';
+    }
+    
+    // Check if the user is a staff member of any kind
+    function isStaff() {
+      return isAdmin() || isCounselor() || isCaseManager() || isBusiness() || isProctor();
+    }
+
+    // ==========================================
+    // COLLECTION RULES
+    // ==========================================
+
+    // Rules for Users collection
+    match /users/{userId} {
+      allow read: if request.auth != null && (
+        request.auth.uid == userId || 
+        isAdmin() ||
+        resource.data.email == request.auth.token.email
+      );
+      // Prevent users from changing their own role to "admin" upon registration
+      allow write: if isAdmin() || (
+        request.auth != null && 
+        request.auth.uid == userId && 
+        request.resource.data.role == resource.data.role
+      );
+    }
+
+    // Rules for Master Students
+    match /master_students/{studentId} {
+      allow read: if request.auth != null && (
+        isStaff() || 
+        resource.data.email == request.auth.token.email
+      );
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || isCounselor() || isCaseManager();
+    }
+
+    // Rules for SAT/PSAT Registrations
+    match /sat_registrations/{regId} {
+      allow read: if request.auth != null && (
+        isStaff() || 
+        resource.data.email == request.auth.token.email || 
+        resource.data.uid == request.auth.uid
+      );
+      // FIX: Force student to only create registrations for THEMSELVES
+      allow create: if request.auth != null && (
+        isAdmin() || 
+        request.resource.data.email == request.auth.token.email || 
+        request.resource.data.uid == request.auth.uid
+      );
+      // FIX: Ensure they can't change the ownership fields during an update
+      allow update: if request.auth != null && (
+        isStaff() || (
+          (resource.data.email == request.auth.token.email || resource.data.uid == request.auth.uid) &&
+          request.resource.data.email == resource.data.email &&
+          request.resource.data.uid == resource.data.uid
+        )
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Rules for AP Registrations
+    match /ap_registrations/{regId} {
+      allow read: if request.auth != null && (
+        isStaff() || 
+        resource.data.email == request.auth.token.email ||
+        resource.data.schoolEmail == request.auth.token.email
+      );
+      // FIX: Allow students to register themselves safely
+      allow create: if request.auth != null && (
+        isAdmin() ||
+        request.resource.data.email == request.auth.token.email ||
+        request.resource.data.schoolEmail == request.auth.token.email
+      );
+      allow update: if isAdmin() || isBusiness() || isCaseManager();
+      allow delete: if isAdmin();
+    }
+
+    // Settings and cycles
+    match /settings/{settingId} {
+      allow read: if request.auth != null && settingId != 'encryption';
+      allow write: if isAdmin() || isBusiness();
+    }
+
+    // Secure key storage only readable by verified staff
+    match /settings/encryption {
+      allow read: if request.auth != null && isStaff();
+      allow write: if isAdmin();
+    }
+
+    // Testing Room Layouts
+    match /testing_rooms/{roomId} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+
+    // NWEA MAP Scores
+    match /nwea_map_scores/{docId} {
+      allow read: if request.auth != null && (
+        isAdmin() || 
+        isCounselor() || 
+        resource.data.email == request.auth.token.email
+      );
+      allow write: if isAdmin();
+    }
+
+    // Seating Charts
+    match /seating_charts/{chartId} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+
+    // Year-End Summaries
+    match /year_end_summaries/{summaryId} {
+      allow read: if request.auth != null && (isAdmin() || isCounselor() || isCaseManager() || isBusiness());
+      allow write: if isAdmin();
+    }
+    
+    // Custom Forms (The Form Blueprints)
+    match /custom_forms/{formId} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+
+    // Custom Form Submissions (Student Answers)
+    match /form_submissions/{subId} {
+      allow read: if request.auth != null && (
+        isStaff() || 
+        resource.data.studentEmail == request.auth.token.email
+      );
+      // FIX: Prevents identity impersonation during submission creation
+      allow create: if request.auth != null && (
+        isAdmin() || 
+        request.resource.data.studentEmail == request.auth.token.email
+      );
+      // FIX: Prevents hijacking data updates
+      allow update: if request.auth != null && (
+        isStaff() || (
+          resource.data.studentEmail == request.auth.token.email &&
+          request.resource.data.studentEmail == resource.data.studentEmail
+        )
+      );
+      allow delete: if isAdmin();
+    }
+  }
+}

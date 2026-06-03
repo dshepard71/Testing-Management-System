@@ -1,0 +1,52 @@
+:root {
+  /* FA Primary Colors */
+  --fa-blue: #00468B;
+  --fa-dark-blue: #002D5B;
+  --fa-warm-gray: #63554F;
+  
+  /* FA Secondary Colors */
+  --fa-red: #9E2432;
+  --fa-gold: #EAB010;
+  --fa-green: #758838;
+  
+  /* FA Spirited Colors */
+  --fa-coral: #F26652;
+  --fa-chartreuse: #D7DF23;
+  --fa-mint: #6DC4BC;
+  --fa-cyan: #00AEEF;
+
+  /* Glassmorphism Utilities */
+  --glass-bg: rgba(255, 255, 255, 0.85);
+  --glass-border: rgba(255, 255, 255, 0.5);
+  --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.05);
+
+  font-family: 'Myriad Pro', Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color: #333;
+  background-color: #f4f7f9;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  min-height: 100vh;
+  width: 100vw;
+  overflow-x: hidden;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Adobe Garamond Pro', Georgia, serif;
+  color: var(--fa-dark-blue);
+  margin-top: 0;
+}
+
+.glass-panel {
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  border-radius: 16px;
+}
