@@ -69,7 +69,7 @@ const StaffManagementModal = ({ isOpen, onClose, staffList, onAddStaff, onUpdate
                     />
                     <input
                         type="email"
-                        placeholder="Email (e.g. msmith@fryeburgacademy.org)"
+                        placeholder="Email (e.g. msmith@fryeburgacademy.org or @myfryeburg.org)"
                         value={newStaffEmail}
                         onChange={(e) => setNewStaffEmail(e.target.value)}
                         style={{ padding: '10px', borderRadius: '6px', border: '1px solid #dadce0', outline: 'none' }}

@@ -15,6 +15,7 @@ const ReportingDashboard = () => {
     const [loading, setLoading] = useState(true);
     const [showHelp, setShowHelp] = useState(false);
     const [expandedAlert, setExpandedAlert] = useState(null);
+    const [selectedYear, setSelectedYear] = useState('current');
 
     useEffect(() => {
         const unsubAP = onSnapshot(collection(db, 'ap_registrations'), (snapshot) => {
@@ -56,9 +57,72 @@ const ReportingDashboard = () => {
         };
     }, []);
 
-    // Calculate stats
-    const apExamCount = apStudents.filter(s => s.orderExam === 'Yes').length;
-    const apTotalCost = apStudents.reduce((sum, s) => {
+    // Academic year helper: determines school year from a date (July 1 boundary)
+    const getAcademicYear = (dateInput) => {
+        let d;
+        if (!dateInput) return null;
+        if (dateInput?.seconds) d = new Date(dateInput.seconds * 1000);
+        else if (dateInput instanceof Date) d = dateInput;
+        else if (typeof dateInput === 'string') {
+            d = new Date(dateInput);
+            if (isNaN(d.getTime())) return null;
+        } else return null;
+        const year = d.getFullYear();
+        const month = d.getMonth(); // 0-indexed
+        const startYear = month >= 6 ? year : year - 1; // July (6) starts new year
+        return `${startYear}-${(startYear + 1).toString().slice(-2)}`;
+    };
+
+    // Determine current academic year
+    const currentAcademicYear = useMemo(() => {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = now.getMonth();
+        const startYear = month >= 6 ? year : year - 1;
+        return `${startYear}-${(startYear + 1).toString().slice(-2)}`;
+    }, []);
+
+    // Collect all available academic years from data
+    const availableYears = useMemo(() => {
+        const years = new Set();
+        seatingCharts.forEach(c => {
+            const y = getAcademicYear(c.date || c.createdAt);
+            if (y) years.add(y);
+        });
+        satRegistrations.forEach(r => {
+            const y = getAcademicYear(r.createdAt || r.registrationDate);
+            if (y) years.add(y);
+        });
+        apStudents.forEach(r => {
+            const y = getAcademicYear(r.createdAt || r.timestamp);
+            if (y) years.add(y);
+        });
+        years.add(currentAcademicYear);
+        return Array.from(years).sort().reverse();
+    }, [seatingCharts, satRegistrations, apStudents, currentAcademicYear]);
+
+    // Resolve the active year for filtering
+    const activeYear = selectedYear === 'current' ? currentAcademicYear : selectedYear;
+
+    // Filter data by selected year
+    const filteredAP = useMemo(() => {
+        if (selectedYear === 'all') return apStudents;
+        return apStudents.filter(r => getAcademicYear(r.createdAt || r.timestamp) === activeYear);
+    }, [apStudents, selectedYear, activeYear]);
+
+    const filteredSAT = useMemo(() => {
+        if (selectedYear === 'all') return satRegistrations;
+        return satRegistrations.filter(r => getAcademicYear(r.createdAt || r.registrationDate) === activeYear);
+    }, [satRegistrations, selectedYear, activeYear]);
+
+    const filteredCharts = useMemo(() => {
+        if (selectedYear === 'all') return seatingCharts;
+        return seatingCharts.filter(c => getAcademicYear(c.date || c.createdAt) === activeYear);
+    }, [seatingCharts, selectedYear, activeYear]);
+
+    // Calculate stats from filtered data
+    const apExamCount = filteredAP.filter(s => s.orderExam === 'Yes').length;
+    const apTotalCost = filteredAP.reduce((sum, s) => {
         let cost = s.orderExam === 'Yes' ? (s.feeStatus === 'Reduced' ? 62 : 99) : 0;
         if (s.lateOrderFee === 'Yes') cost += 40;
         if (s.lateTestingFee === 'Yes') cost += 40;
@@ -66,14 +130,14 @@ const ReportingDashboard = () => {
         return sum + cost;
     }, 0);
 
-    const satCount = satRegistrations.filter(r => r.testType === 'SAT').length;
-    const psatCount = satRegistrations.filter(r => r.testType === 'PSAT').length;
-    const satPaid = satRegistrations.filter(r => r.paymentRecd === 'Yes').length;
-    const satPending = satRegistrations.length - satPaid;
+    const satCount = filteredSAT.filter(r => r.testType === 'SAT').length;
+    const psatCount = filteredSAT.filter(r => r.testType === 'PSAT').length;
+    const satPaid = filteredSAT.filter(r => r.paymentRecd === 'Yes').length;
+    const satPending = filteredSAT.length - satPaid;
 
     const studentsWithAccommodations = masterStudents.filter(s => s.accommodations).length;
-    const totalRoomsScheduled = seatingCharts.length;
-    const totalStudentsAssigned = seatingCharts.reduce((sum, c) => sum + (c.studentCount || 0), 0);
+    const totalRoomsScheduled = filteredCharts.length;
+    const totalStudentsAssigned = filteredCharts.reduce((sum, c) => sum + (c.studentCount || 0), 0);
 
     // Helper to format any value for CSV (handles dates and strings)
     const formatCSVValue = (val) => {
@@ -271,7 +335,7 @@ const ReportingDashboard = () => {
 
     return (
         <div style={{ padding: '32px', maxWidth: '1200px', margin: '0 auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <div>
                     <h1 style={{ margin: 0, color: '#202124' }}>📊 Reporting Dashboard</h1>
                     <p style={{ margin: '8px 0 0', color: '#5f6368' }}>Overview of testing statistics and logistics</p>
@@ -295,12 +359,65 @@ const ReportingDashboard = () => {
                 </button>
             </div>
 
+            {/* School Year Filter */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '24px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '13px', fontWeight: '600', color: '#5f6368' }}>📅 School Year:</span>
+                <button
+                    onClick={() => setSelectedYear('current')}
+                    style={{
+                        padding: '6px 14px',
+                        borderRadius: '20px',
+                        border: (selectedYear === 'current') ? '2px solid #1a73e8' : '1px solid #dadce0',
+                        backgroundColor: (selectedYear === 'current') ? '#e8f0fe' : 'white',
+                        color: (selectedYear === 'current') ? '#1a73e8' : '#5f6368',
+                        fontWeight: (selectedYear === 'current') ? 'bold' : '500',
+                        cursor: 'pointer',
+                        fontSize: '13px'
+                    }}
+                >
+                    {currentAcademicYear} (Current)
+                </button>
+                {availableYears.filter(y => y !== currentAcademicYear).map(year => (
+                    <button
+                        key={year}
+                        onClick={() => setSelectedYear(year)}
+                        style={{
+                            padding: '6px 14px',
+                            borderRadius: '20px',
+                            border: selectedYear === year ? '2px solid #1a73e8' : '1px solid #dadce0',
+                            backgroundColor: selectedYear === year ? '#e8f0fe' : 'white',
+                            color: selectedYear === year ? '#1a73e8' : '#5f6368',
+                            fontWeight: selectedYear === year ? 'bold' : '500',
+                            cursor: 'pointer',
+                            fontSize: '13px'
+                        }}
+                    >
+                        {year}
+                    </button>
+                ))}
+                <button
+                    onClick={() => setSelectedYear('all')}
+                    style={{
+                        padding: '6px 14px',
+                        borderRadius: '20px',
+                        border: selectedYear === 'all' ? '2px solid #1a73e8' : '1px solid #dadce0',
+                        backgroundColor: selectedYear === 'all' ? '#e8f0fe' : 'white',
+                        color: selectedYear === 'all' ? '#1a73e8' : '#5f6368',
+                        fontWeight: selectedYear === 'all' ? 'bold' : '500',
+                        cursor: 'pointer',
+                        fontSize: '13px'
+                    }}
+                >
+                    All Time
+                </button>
+            </div>
+
             {showHelp && <HelpGuide role="reports" onClose={() => setShowHelp(false)} />}
 
             {/* Stats Grid */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', marginBottom: '32px' }}>
                 <StatCard icon="📘" title="AP Exams Ordered" value={apExamCount} subtitle={`$${apTotalCost.toLocaleString()} total billed`} color="#1a73e8" />
-                <StatCard icon="📝" title="SAT Registrations" value={satCount} subtitle={`${satPaid} paid, ${satRegistrations.filter(r => r.testType === 'SAT' && r.paymentRecd !== 'Yes').length} pending`} color="#34a853" />
+                <StatCard icon="📝" title="SAT Registrations" value={satCount} subtitle={`${satPaid} paid, ${filteredSAT.filter(r => r.testType === 'SAT' && r.paymentRecd !== 'Yes').length} pending`} color="#34a853" />
                 <StatCard icon="📋" title="PSAT Registrations" value={psatCount} color="#fbbc04" />
                 <StatCard icon="♿" title="Students w/ Accommodations" value={studentsWithAccommodations} subtitle="In Master List" color="#ea4335" />
             </div>
@@ -317,19 +434,19 @@ const ReportingDashboard = () => {
                     <span style={{ fontSize: '20px' }}>⚠️</span> Action Items & Alerts
                 </h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    {satRegistrations.filter(r => r.paymentRecd !== 'Yes').length > 0 && (
+                    {filteredSAT.filter(r => r.paymentRecd !== 'Yes').length > 0 && (
                         <div style={{ backgroundColor: '#fef7e0', borderLeft: '4px solid #f9ab00', borderRadius: '4px', overflow: 'hidden' }}>
                             <div 
                                 onClick={() => setExpandedAlert(expandedAlert === 'payments' ? null : 'payments')}
                                 style={{ padding: '12px 16px', fontSize: '14px', color: '#b06000', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                             >
-                                <span><strong>Pending Payments:</strong> {satRegistrations.filter(r => r.paymentRecd !== 'Yes').length} students have unpaid SAT/PSAT registrations.</span>
+                                <span><strong>Pending Payments:</strong> {filteredSAT.filter(r => r.paymentRecd !== 'Yes').length} students have unpaid SAT/PSAT registrations.</span>
                                 <span>{expandedAlert === 'payments' ? '▲' : '▼'}</span>
                             </div>
                             {expandedAlert === 'payments' && (
                                 <div style={{ padding: '0 16px 16px 16px', fontSize: '13px', color: '#80868b' }}>
                                     <ul style={{ margin: 0, paddingLeft: '20px' }}>
-                                        {satRegistrations.filter(r => r.paymentRecd !== 'Yes').map(r => (
+                                        {filteredSAT.filter(r => r.paymentRecd !== 'Yes').map(r => (
                                             <li key={r.id}>{r.lastName}, {r.firstName} ({r.testType})</li>
                                         ))}
                                     </ul>
@@ -337,19 +454,19 @@ const ReportingDashboard = () => {
                             )}
                         </div>
                     )}
-                    {seatingCharts.filter(c => !c.proctor || c.proctor === 'Unassigned').length > 0 && (
+                    {filteredCharts.filter(c => !c.proctor || c.proctor === 'Unassigned').length > 0 && (
                         <div style={{ backgroundColor: '#fce8e6', borderLeft: '4px solid #ea4335', borderRadius: '4px', overflow: 'hidden' }}>
                             <div 
                                 onClick={() => setExpandedAlert(expandedAlert === 'proctors' ? null : 'proctors')}
                                 style={{ padding: '12px 16px', fontSize: '14px', color: '#c5221f', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                             >
-                                <span><strong>Missing Proctors:</strong> {seatingCharts.filter(c => !c.proctor || c.proctor === 'Unassigned').length} testing sessions are missing an assigned proctor.</span>
+                                <span><strong>Missing Proctors:</strong> {filteredCharts.filter(c => !c.proctor || c.proctor === 'Unassigned').length} testing sessions are missing an assigned proctor.</span>
                                 <span>{expandedAlert === 'proctors' ? '▲' : '▼'}</span>
                             </div>
                             {expandedAlert === 'proctors' && (
                                 <div style={{ padding: '0 16px 16px 16px', fontSize: '13px', color: '#80868b' }}>
                                     <ul style={{ margin: 0, paddingLeft: '20px' }}>
-                                        {seatingCharts.filter(c => !c.proctor || c.proctor === 'Unassigned').map(c => (
+                                        {filteredCharts.filter(c => !c.proctor || c.proctor === 'Unassigned').map(c => (
                                             <li key={c.id}>{c.apSubject || c.testType || c.category} - Room {c.roomId} ({c.date || 'No Date'})</li>
                                         ))}
                                     </ul>
@@ -358,7 +475,7 @@ const ReportingDashboard = () => {
                         </div>
                     )}
                     {/* Add more alerts here as needed */}
-                    {satRegistrations.filter(r => r.paymentRecd === 'Yes').length === satRegistrations.length && seatingCharts.filter(c => !c.proctor || c.proctor === 'Unassigned').length === 0 && (
+                    {filteredSAT.filter(r => r.paymentRecd === 'Yes').length === filteredSAT.length && filteredCharts.filter(c => !c.proctor || c.proctor === 'Unassigned').length === 0 && (
                         <div style={{ padding: '12px 16px', backgroundColor: '#e6f4ea', borderLeft: '4px solid #34a853', borderRadius: '4px', fontSize: '14px', color: '#137333' }}>
                             <strong>All Caught Up!</strong> No urgent action items at this time.
                         </div>
@@ -438,10 +555,10 @@ const ReportingDashboard = () => {
                 <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '24px', border: '1px solid #dadce0' }}>
                     <h3 style={{ margin: '0 0 16px 0', color: '#202124' }}>📘 AP Subject Popularity</h3>
                     <div style={{ height: '300px', width: '100%' }}>
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                             <BarChart
                                 data={Object.entries(
-                                    apStudents
+                                    filteredAP
                                         .filter(s => s.orderExam === 'Yes')
                                         .reduce((acc, s) => {
                                             const course = s.course || 'Unknown';
@@ -468,7 +585,7 @@ const ReportingDashboard = () => {
                 <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '24px', border: '1px solid #dadce0' }}>
                     <h3 style={{ margin: '0 0 16px 0', color: '#202124' }}>🥧 Registration Distribution</h3>
                     <div style={{ height: '300px', width: '100%' }}>
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                             <PieChart>
                                 <Pie
                                     data={[
@@ -506,7 +623,7 @@ const ReportingDashboard = () => {
                 <h3 style={{ margin: '0 0 16px 0', color: '#202124' }}>👤 Proctor Workload</h3>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '12px' }}>
                     {Object.entries(
-                        seatingCharts.reduce((acc, chart) => {
+                        filteredCharts.reduce((acc, chart) => {
                             // Helper to process a staff member
                             const processStaff = (name, role) => {
                                 const staffName = name || 'Unassigned';
@@ -646,7 +763,7 @@ const ReportingDashboard = () => {
                                 )}
                             </div>
                         ))}
-                    {seatingCharts.length === 0 && (
+                    {filteredCharts.length === 0 && (
                         <div style={{ padding: '20px', color: '#5f6368', fontStyle: 'italic' }}>
                             No seating charts created yet.
                         </div>

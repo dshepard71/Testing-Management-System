@@ -14,6 +14,9 @@ const APManager = () => {
     const [showManualModal, setShowManualModal] = useState(false);
     const [uploadStatus, setUploadStatus] = useState('');
     const [uploadData, setUploadData] = useState([]);
+    const [editingId, setEditingId] = useState(null);
+    const [editData, setEditData] = useState({});
+    const [selectedIds, setSelectedIds] = useState([]);
     const [manualData, setManualData] = useState({
         firstName: '', lastName: '', email: '', course: '', feeStatus: 'Standard', orderExam: 'Yes',
         lateOrderFee: 'No', lateTestingFee: 'No', unusedFee: 'No'
@@ -79,6 +82,68 @@ const APManager = () => {
                 console.error("Error deleting:", error);
             }
         }
+    };
+
+    const handleBulkDelete = async () => {
+        if (selectedIds.length === 0) return;
+        if (!window.confirm(`Are you sure you want to delete ${selectedIds.length} selected AP registrations?`)) return;
+        setLoading(true);
+        try {
+            const batch = writeBatch(db);
+            selectedIds.forEach(id => {
+                batch.delete(doc(db, 'ap_registrations', id));
+            });
+            await batch.commit();
+            setSelectedIds([]);
+            alert(`Deleted ${selectedIds.length} AP registrations.`);
+        } catch (error) {
+            console.error("Bulk delete error:", error);
+            alert("Failed to delete records.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const toggleSelectAll = () => {
+        if (selectedIds.length === filtered.length) {
+            setSelectedIds([]);
+        } else {
+            setSelectedIds(filtered.map(r => r.id));
+        }
+    };
+
+    const toggleSelectOne = (id) => {
+        setSelectedIds(prev =>
+            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+        );
+    };
+
+    const handleExportCSV = () => {
+        const dataToExport = filtered;
+        if (dataToExport.length === 0) {
+            alert('No AP registrations to export.');
+            return;
+        }
+        const headers = ['Last Name', 'First Name', 'Email', 'Course', 'Fee Status', 'Order Exam', 'Late Order Fee', 'Late Testing Fee', 'Unused Fee', 'Cost'];
+        const rows = dataToExport.map(r => [
+            r.lastName || '',
+            r.firstName || '',
+            r.schoolEmail || r.email || '',
+            r.course || '',
+            r.feeStatus || 'Standard',
+            r.orderExam || 'Yes',
+            r.lateOrderFee || 'No',
+            r.lateTestingFee || 'No',
+            r.unusedFee || 'No',
+            '$' + calculateCost(r)
+        ]);
+        const csvContent = [headers, ...rows].map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `AP_Registrations_Export_${new Date().toISOString().slice(0, 10)}.csv`;
+        link.click();
+        URL.revokeObjectURL(link.href);
     };
 
     const handleFileUpload = (e) => {
@@ -169,7 +234,7 @@ const APManager = () => {
             
             // Try to find school email
             let schoolEmail = manualData.email;
-            if (!manualData.email.includes('@fryeburgacademy.org')) {
+            if (!manualData.email.includes('@fryeburgacademy.org') && !manualData.email.includes('@myfryeburg.org')) {
                 const master = masterStudents.find(m => m.firstName?.toLowerCase() === manualData.firstName.toLowerCase() && m.lastName?.toLowerCase() === manualData.lastName.toLowerCase());
                 if (master && master.email) schoolEmail = master.email.toLowerCase();
             }
@@ -207,12 +272,23 @@ const APManager = () => {
                     <h2 style={{ margin: 0, color: 'var(--fa-dark-blue)', fontSize: '20px', fontWeight: 'bold' }}>AP Registration Manager</h2>
                     <p style={{ margin: '4px 0 0', color: 'var(--fa-warm-gray)', fontSize: '12px' }}>Manage AP students and exam rosters.</p>
                 </div>
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    {selectedIds.length > 0 && (
+                        <button
+                            onClick={handleBulkDelete}
+                            style={{ padding: '8px 16px', backgroundColor: 'var(--fa-red)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}
+                        >
+                            Delete Selected ({selectedIds.length})
+                        </button>
+                    )}
                     <button onClick={() => setShowManualModal(true)} style={{ padding: '8px 16px', backgroundColor: '#34a853', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}>
                         + Add Student
                     </button>
                     <button onClick={() => setShowUploadModal(true)} style={{ padding: '8px 16px', backgroundColor: 'var(--fa-blue)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}>
                         Import CollegeBoard Roster
+                    </button>
+                    <button onClick={handleExportCSV} style={{ padding: '8px 16px', backgroundColor: '#e8f0fe', color: 'var(--fa-blue)', border: '1px solid var(--fa-blue)', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}>
+                        📥 Export CSV
                     </button>
                     <input type="text" placeholder="Search..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={{ padding: '8px 12px', width: '200px', borderRadius: '8px', border: '1px solid var(--glass-border)', outline: 'none', fontSize: '13px' }} />
                 </div>
@@ -223,6 +299,13 @@ const APManager = () => {
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
                         <thead>
                             <tr style={{ backgroundColor: 'rgba(0, 70, 139, 0.05)', borderBottom: '1px solid var(--glass-border)' }}>
+                                <th style={{ padding: '12px 16px', width: '30px' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={filtered.length > 0 && selectedIds.length === filtered.length}
+                                        onChange={toggleSelectAll}
+                                    />
+                                </th>
                                 <th style={{ padding: '12px 16px', color: 'var(--fa-dark-blue)', fontWeight: 'bold' }}>Student</th>
                                 <th style={{ padding: '12px 16px', color: 'var(--fa-dark-blue)', fontWeight: 'bold' }}>Course</th>
                                 <th style={{ padding: '12px 16px', color: 'var(--fa-dark-blue)', fontWeight: 'bold' }}>Fee Status</th>
@@ -234,7 +317,14 @@ const APManager = () => {
                         </thead>
                         <tbody>
                             {filtered.map(r => (
-                                <tr key={r.id} style={{ borderBottom: '1px solid var(--glass-border)' }}>
+                                <tr key={r.id} style={{ borderBottom: '1px solid var(--glass-border)', backgroundColor: selectedIds.includes(r.id) ? 'rgba(0, 70, 139, 0.05)' : 'transparent' }}>
+                                    <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedIds.includes(r.id)}
+                                            onChange={() => toggleSelectOne(r.id)}
+                                        />
+                                    </td>
                                     {editingId === r.id ? (
                                         <>
                                             <td style={{ padding: '8px 16px' }}>

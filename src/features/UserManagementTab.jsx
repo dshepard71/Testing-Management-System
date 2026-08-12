@@ -165,7 +165,7 @@ const UserManagementTab = () => {
                                 type="email"
                                 value={newMemberEmail}
                                 onChange={(e) => setNewMemberEmail(e.target.value)}
-                                placeholder="user@fryeburgacademy.org"
+                                placeholder="user@fryeburgacademy.org or @myfryeburg.org"
                                 style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #dadce0', outline: 'none' }}
                                 required
                             />

@@ -12,7 +12,7 @@ const HelpGuide = ({ role = 'student', onClose }) => {
             marginBottom: '12px',
             overflow: 'hidden',
             padding: 0,
-            background: 'rgba(255, 255, 255, 0.6)',
+            background: 'rgba(255, 255, 255, 0.75)',
             border: '1px solid var(--glass-border)'
         }}>
             <button
@@ -21,7 +21,7 @@ const HelpGuide = ({ role = 'student', onClose }) => {
                     width: '100%',
                     padding: '16px 20px',
                     border: 'none',
-                    backgroundColor: expandedSection === id ? 'rgba(0, 70, 139, 0.05)' : 'transparent',
+                    backgroundColor: expandedSection === id ? 'rgba(0, 70, 139, 0.08)' : 'transparent',
                     textAlign: 'left',
                     cursor: 'pointer',
                     display: 'flex',
@@ -126,15 +126,6 @@ const HelpGuide = ({ role = 'student', onClose }) => {
                             <p><strong>How to use:</strong> Enter any part of the student's name or email. Results show all their tests across AP, SAT/PSAT, and Maine testing.</p>
                         </>
                     )
-                },
-                {
-                    id: 'assignments',
-                    title: '📅 My Assignments',
-                    content: (
-                        <>
-                            <p><strong>Purpose:</strong> If you're also assigned as a proctor or monitor, view your testing room assignments here.</p>
-                        </>
-                    )
                 }
             ]
         },
@@ -179,10 +170,140 @@ const HelpGuide = ({ role = 'student', onClose }) => {
                     )
                 }
             ]
+        },
+        admin: {
+            title: '⚙️ Administrator Standard Operating Procedures & Guide',
+            sections: [
+                {
+                    id: 'roster-mgmt',
+                    title: '👥 Master Roster & Homeschool Student Management',
+                    content: (
+                        <>
+                            <p><strong>Overview:</strong> The Master Student List (under Counselor/Admin Hub) is the single source of truth for student identity, accommodations, and program statuses.</p>
+                            <p><strong>Importing Roster Data:</strong> Click <em>Import</em> and upload an XLSX/CSV file containing headers: First Name, Last Name, Email, DOB, State ID, Grade, Advisor, Program, Accommodations.</p>
+                            <p><strong>Adding/Editing Homeschool Students:</strong> Click <em>Edit</em> next to any row to set their program to <em>Homeschool</em>, or set their student category to <em>Homeschool</em> when registering in SAT/PSAT Manager.</p>
+                        </>
+                    )
+                },
+                {
+                    id: 'sat-psat-sop',
+                    title: '📝 SAT & PSAT Administration & Annual Rollover',
+                    content: (
+                        <>
+                            <p><strong>Location:</strong> Assessment Hub → SAT/PSAT Manager.</p>
+                            <p><strong>Annual Rollover (Starting a New Year):</strong> First click <em>Export Collegeboard CSV</em> to back up last year's data. Next, click the top-left select-all header checkbox, then click red <em>Delete Selected</em> to clear old entries.</p>
+                            <p><strong>Adding Students:</strong> Click <em>+ Add Student</em> (for individual signups) or <em>Bulk Paste Import</em>. Select Student Type as <em>Homeschool</em>, <em>Boarding</em>, <em>District Day</em>, or <em>Commuter Day</em>.</p>
+                            <p><strong>Exporting:</strong> Click <em>Export Collegeboard CSV</em> for official uploads or <em>Create Deposit Sheet</em> for Business Office fee submissions.</p>
+                        </>
+                    )
+                },
+                {
+                    id: 'ap-sop',
+                    title: '📘 AP Exam Administration',
+                    content: (
+                        <>
+                            <p><strong>Location:</strong> Assessment Hub → AP Manager.</p>
+                            <p><strong>Roster Import:</strong> Click <em>Upload AP Roster</em> to import College Board CSV/XLSX export files. The system matches courses, fee status, and school emails.</p>
+                            <p><strong>Fee Status:</strong> Update fee statuses (Standard vs. Reduced vs. Late Order). All balances flow directly to the Billing Clearinghouse.</p>
+                        </>
+                    )
+                },
+                {
+                    id: 'calendar-seating-sop',
+                    title: '📅 Testing Calendar & Seating Charts Scheduling',
+                    content: (
+                        <>
+                            <p><strong>How Calendar Dates Get Added:</strong> Go to <em>Seating Charts</em>, create/select a room layout, assign a Test Type, and select the scheduled <em>Date</em>. Setting a date on any seating chart automatically publishes the event onto the <strong>Testing Calendar</strong>.</p>
+                            <p><strong>Proctor Workloads:</strong> Assign proctors to room layouts to auto-calculate workloads on the Proctor Workload report.</p>
+                        </>
+                    )
+                },
+                {
+                    id: 'logistics-checkin-sop',
+                    title: '🏢 Attendance Check-in & Makeup Tracker',
+                    content: (
+                        <>
+                            <p><strong>Live Check-in:</strong> Proctors mark student attendance during test sessions on the Live Check-in console.</p>
+                            <p><strong>Makeup Tracker:</strong> Students absent from assigned sessions automatically flag in the Makeup Tracker for rescheduled sessions.</p>
+                        </>
+                    )
+                },
+                {
+                    id: 'billing-sop',
+                    title: '💼 Billing Clearinghouse & Financial Summary',
+                    content: (
+                        <>
+                            <p><strong>Location:</strong> Data & Billing → Billing Clearinghouse.</p>
+                            <p><strong>Fee Processing:</strong> Filter fees by Student Type (Boarding vs. Day vs. Homeschool). Track payment tenders (Cash, Check, CC, Account) and export financial reports.</p>
+                        </>
+                    )
+                },
+                {
+                    id: 'setup-sop',
+                    title: '⚙️ User Roles & System Settings',
+                    content: (
+                        <>
+                            <p><strong>User Management:</strong> Assign roles (Admin, Counselor, Proctor, Student, Business) under System Settings.</p>
+                            <p><strong>Graduation Year Mappings:</strong> Map graduation years (e.g. 2028 = Grade 11) for automated roll-over logic.</p>
+                        </>
+                    )
+                }
+            ]
+        },
+        business: {
+            title: '💼 Business Office Help Guide',
+            sections: [
+                {
+                    id: 'console',
+                    title: '💼 Business Console',
+                    content: (
+                        <>
+                            <p><strong>Purpose:</strong> Track payments for AP and SAT/PSAT testing fees.</p>
+                            <p><strong>View:</strong> See all students with fees due and their payment status.</p>
+                            <p><strong>Update:</strong> Mark payments as received when processed.</p>
+                        </>
+                    )
+                },
+                {
+                    id: 'summary',
+                    title: '📊 Financial Summary',
+                    content: (
+                        <>
+                            <p><strong>Purpose:</strong> Overview of all testing-related finances.</p>
+                            <p><strong>Includes:</strong> Total AP fees, SAT/PSAT fees, and collection status.</p>
+                        </>
+                    )
+                }
+            ]
+        },
+        reports: {
+            title: '📊 Reports & Snapshots Help Guide',
+            sections: [
+                {
+                    id: 'reports-overview',
+                    title: '📊 Reports Overview',
+                    content: (
+                        <>
+                            <p><strong>Statistics:</strong> Real-time count of AP exams ordered, SAT/PSAT registrations, and students with accommodations.</p>
+                            <p><strong>Exports:</strong> Download CSV files for AP, SAT, Master List, or Accommodation lists.</p>
+                        </>
+                    )
+                },
+                {
+                    id: 'snapshots',
+                    title: '📸 Year-End Snapshots',
+                    content: (
+                        <>
+                            <p><strong>Purpose:</strong> Save a permanent record of the current year's testing statistics.</p>
+                            <p><strong>How to use:</strong> Click <em>Save Year-End Snapshot</em> at the bottom of the page to compare numbers year-over-year.</p>
+                        </>
+                    )
+                }
+            ]
         }
     };
 
-    const guide = guides[role] || guides.student;
+    const guide = guides[role] || guides.admin || guides.student;
 
     return (
         <div style={{
@@ -200,7 +321,7 @@ const HelpGuide = ({ role = 'student', onClose }) => {
         }} onClick={onClose}>
             <div className="glass-panel" style={{
                 width: '100%',
-                maxWidth: '600px',
+                maxWidth: '650px',
                 maxHeight: '85vh',
                 display: 'flex',
                 flexDirection: 'column',
@@ -260,7 +381,7 @@ const HelpGuide = ({ role = 'student', onClose }) => {
                         fontWeight: '600',
                         border: '1.5px solid rgba(0, 70, 139, 0.15)'
                     }}>
-                        <strong>Need more help?</strong> Contact the Testing Coordinator for assistance.
+                        <strong>Need more help?</strong> Refer to the complete written SOP manual in <code>OPERATIONS_MANUAL.md</code>.
                     </div>
                 </div>
             </div>

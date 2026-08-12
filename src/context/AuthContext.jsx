@@ -38,14 +38,22 @@ export const AuthProvider = ({ children }) => {
                lowerEmail === 'djdshep@gmail.com';
     };
 
-    const loginWithGoogle = () => {
+    const loginWithGoogle = async () => {
+        // Use select_account to allow users to choose between their accounts
+        googleProvider.setCustomParameters({ prompt: 'select_account' });
+        
+        const result = await signInWithPopup(auth, googleProvider);
+        const email = result.user.email.toLowerCase();
+        
         // Enforce school domain in production, allow personal Gmail on localhost for developer testing
         if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-            googleProvider.setCustomParameters({ hd: 'fryeburgacademy.org' });
-        } else {
-            googleProvider.setCustomParameters({ hd: '' });
+            if (!email.endsWith('@fryeburgacademy.org') && !email.endsWith('@myfryeburg.org') && !isAdminEmail(email)) {
+                await signOut(auth);
+                throw new Error('Unauthorized domain. Please use a school email account.');
+            }
         }
-        return signInWithPopup(auth, googleProvider);
+        
+        return result;
     };
 
     const logout = () => {

@@ -180,66 +180,79 @@ const HelpGuide = ({ role = 'student', onClose }) => {
             ]
         },
         admin: {
-            title: '⚙️ Admin Help Guide',
+            title: '⚙️ Administrator Standard Operating Procedures & Guide',
             sections: [
                 {
-                    id: 'setup',
-                    title: '⚙️ Setup & Settings',
+                    id: 'roster-mgmt',
+                    title: '👥 Master Roster & Homeschool Student Management',
                     content: (
                         <>
-                            <p><strong>User Management:</strong> Add, remove, or change user roles (Admin, Counselor, Proctor, Student, Business)</p>
-                            <p><strong>Graduation Year Mappings:</strong> Set which graduation year corresponds to each grade level</p>
-                            <p><strong>SAT/PSAT Settings:</strong> Control registration open/close and current testing cycle (e.g., Fall 2026)</p>
-                            <p><strong>Preview Student View:</strong> See what students see when they log in</p>
+                            <p><strong>Overview:</strong> The Master Student List (under Counselor/Admin Hub) is the single source of truth for student identity, accommodations, and program statuses.</p>
+                            <p><strong>Importing Roster Data:</strong> Click <em>Import</em> and upload an XLSX/CSV file containing headers: First Name, Last Name, Email, DOB, State ID, Grade, Advisor, Program, Accommodations.</p>
+                            <p><strong>Adding/Editing Homeschool Students:</strong> Click <em>Edit</em> next to any row to set their program to <em>Homeschool</em>, or set their student category to <em>Homeschool</em> when registering in SAT/PSAT Manager.</p>
                         </>
                     )
                 },
                 {
-                    id: 'ap',
-                    title: '📘 AP Testing',
+                    id: 'sat-psat-sop',
+                    title: '📝 SAT & PSAT Administration & Annual Rollover',
                     content: (
                         <>
-                            <p><strong>Upload Files:</strong> Import College Board AP student files</p>
-                            <p><strong>Student List:</strong> View all AP registrations, exams ordered, fees</p>
-                            <p><strong>Billing:</strong> Generate billing reports for Business Office</p>
+                            <p><strong>Location:</strong> Assessment Hub → SAT/PSAT Manager.</p>
+                            <p><strong>Annual Rollover (Starting a New Year):</strong> First click <em>Export Collegeboard CSV</em> to back up last year's data. Next, click the top-left select-all header checkbox, then click red <em>Delete Selected</em> to clear old entries.</p>
+                            <p><strong>Adding Students:</strong> Click <em>+ Add Student</em> (for individual signups) or <em>Bulk Paste Import</em>. Select Student Type as <em>Homeschool</em>, <em>Boarding</em>, <em>District Day</em>, or <em>Commuter Day</em>.</p>
+                            <p><strong>Exporting:</strong> Click <em>Export Collegeboard CSV</em> for official uploads or <em>Create Deposit Sheet</em> for Business Office fee submissions.</p>
                         </>
                     )
                 },
                 {
-                    id: 'sat',
-                    title: '📝 SAT/PSAT',
+                    id: 'ap-sop',
+                    title: '📘 AP Exam Administration',
                     content: (
                         <>
-                            <p><strong>Manager:</strong> View/edit all student registrations</p>
-                            <p><strong>Billing:</strong> Generate billing for SAT/PSAT fees</p>
-                            <p><strong>Import:</strong> Bulk import registrations from Google Forms</p>
+                            <p><strong>Location:</strong> Assessment Hub → AP Manager.</p>
+                            <p><strong>Roster Import:</strong> Click <em>Upload AP Roster</em> to import College Board CSV/XLSX export files. The system matches courses, fee status, and school emails.</p>
+                            <p><strong>Fee Status:</strong> Update fee statuses (Standard vs. Reduced vs. Late Order). All balances flow directly to the Billing Clearinghouse.</p>
                         </>
                     )
                 },
                 {
-                    id: 'logistics',
-                    title: '🏢 Logistics',
+                    id: 'calendar-seating-sop',
+                    title: '📅 Testing Calendar & Seating Charts Scheduling',
                     content: (
                         <>
-                            <p><strong>Room Layouts:</strong> Create and manage testing room seat layouts</p>
-                            <p><strong>Seating Charts:</strong> Assign students to rooms and specific seats</p>
-                            <p><strong>Logistics Dashboards:</strong> Overview of all scheduled testing by category (AP, SAT, Maine)</p>
-                            <p><strong>Attendance:</strong> Check in students during testing, export absence reports</p>
-                            <p><strong>Make-up Tracker:</strong> Track students who need make-up testing</p>
-                            <p><strong>Student Search:</strong> Find all tests for a specific student</p>
-                            <p><strong>Testing Calendar:</strong> Visual calendar of all scheduled tests</p>
+                            <p><strong>How Calendar Dates Get Added:</strong> Go to <em>Seating Charts</em>, create/select a room layout, assign a Test Type, and select the scheduled <em>Date</em>. Setting a date on any seating chart automatically publishes the event onto the <strong>Testing Calendar</strong>.</p>
+                            <p><strong>Proctor Workloads:</strong> Assign proctors to room layouts to auto-calculate workloads on the Proctor Workload report.</p>
                         </>
                     )
                 },
                 {
-                    id: 'reports',
-                    title: '📊 Reports',
+                    id: 'logistics-checkin-sop',
+                    title: '🏢 Attendance Check-in & Makeup Tracker',
                     content: (
                         <>
-                            <p><strong>Statistics:</strong> AP exams ordered, SAT/PSAT counts, accommodations count</p>
-                            <p><strong>Exports:</strong> Download AP, SAT, Master List, or Accommodation list as CSV</p>
-                            <p><strong>AP Breakdown:</strong> Count of students per AP subject</p>
-                            <p><strong>Proctor Workload:</strong> Sessions, students, and days per proctor</p>
+                            <p><strong>Live Check-in:</strong> Proctors mark student attendance during test sessions on the Live Check-in console.</p>
+                            <p><strong>Makeup Tracker:</strong> Students absent from assigned sessions automatically flag in the Makeup Tracker for rescheduled sessions.</p>
+                        </>
+                    )
+                },
+                {
+                    id: 'billing-sop',
+                    title: '💼 Billing Clearinghouse & Financial Summary',
+                    content: (
+                        <>
+                            <p><strong>Location:</strong> Data & Billing → Billing Clearinghouse.</p>
+                            <p><strong>Fee Processing:</strong> Filter fees by Student Type (Boarding vs. Day vs. Homeschool). Track payment tenders (Cash, Check, CC, Account) and export financial reports.</p>
+                        </>
+                    )
+                },
+                {
+                    id: 'setup-sop',
+                    title: '⚙️ User Roles & System Settings',
+                    content: (
+                        <>
+                            <p><strong>User Management:</strong> Assign roles (Admin, Counselor, Proctor, Student, Business) under System Settings.</p>
+                            <p><strong>Graduation Year Mappings:</strong> Map graduation years (e.g. 2028 = Grade 11) for automated roll-over logic.</p>
                         </>
                     )
                 }
@@ -321,6 +334,36 @@ const HelpGuide = ({ role = 'student', onClose }) => {
 
     const guide = guides[role] || guides.student;
 
+    // Inline rendering (used as a tab panel, e.g. in AnalyticsHub)
+    if (!onClose) {
+        return (
+            <div style={{ padding: '24px' }}>
+                <h2 style={{ margin: '0 0 8px 0', color: '#202124', fontSize: '22px', fontWeight: 'bold' }}>{guide.title}</h2>
+                <p style={{ margin: '0 0 24px 0', color: '#5f6368', fontSize: '14px' }}>
+                    Click on any topic below to expand it and learn more.
+                </p>
+
+                {guide.sections.map(section => (
+                    <Section key={section.id} id={section.id} title={section.title}>
+                        {section.content}
+                    </Section>
+                ))}
+
+                <div style={{
+                    marginTop: '24px',
+                    padding: '16px',
+                    backgroundColor: '#e8f0fe',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    color: '#1a73e8'
+                }}>
+                    <strong>Need more help?</strong> Refer to the complete written SOP manual in <code>OPERATIONS_MANUAL.md</code> in the project directory.
+                </div>
+            </div>
+        );
+    }
+
+    // Modal rendering (used as a popup from Help buttons)
     return (
         <div style={{
             position: 'fixed',
@@ -338,7 +381,7 @@ const HelpGuide = ({ role = 'student', onClose }) => {
             <div style={{
                 backgroundColor: 'white',
                 width: '100%',
-                maxWidth: '600px',
+                maxWidth: '650px',
                 maxHeight: '85vh',
                 borderRadius: '16px',
                 boxShadow: '0 4px 20px rgba(0,0,0,0.2)',
@@ -350,7 +393,7 @@ const HelpGuide = ({ role = 'student', onClose }) => {
                 {/* Header */}
                 <div style={{
                     padding: '20px 24px',
-                    borderBottom: '1px solid #1a73e8', // Using theme color
+                    borderBottom: '1px solid #1a73e8',
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
@@ -395,7 +438,7 @@ const HelpGuide = ({ role = 'student', onClose }) => {
                         fontSize: '13px',
                         color: '#1a73e8'
                     }}>
-                        <strong>Need more help?</strong> Contact the Testing Coordinator for assistance.
+                        <strong>Need more help?</strong> Refer to the complete written SOP manual in <code>OPERATIONS_MANUAL.md</code> in the project directory.
                     </div>
                 </div>
             </div>
@@ -404,3 +447,4 @@ const HelpGuide = ({ role = 'student', onClose }) => {
 };
 
 export default HelpGuide;
+

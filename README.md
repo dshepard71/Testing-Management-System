@@ -1,16 +1,20 @@
-# React + Vite
+# 📚 Testing Management System V2
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A comprehensive, modern web platform for managing school-wide standardized testing (SAT, PSAT, AP, Maine State Assessments, NWEA MAP), student rosters, seating charts, live attendance check-ins, proctor workloads, and billing clearinghouse.
 
-Currently, two official plugins are available:
+---
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## 📖 Quick Links & Documentation
 
-## React Compiler
+- [📘 **Administrator Operations Manual & SOP**](file:///c:/Users/dshepard/Projects/Testing%20Management%20System%20V2/OPERATIONS_MANUAL.md) — Comprehensive guide for system operations, roster imports, SAT/AP management, seating charts, calendar scheduling, and billing.
+- [🚀 **Deployment Guide**](file:///c:/Users/dshepard/Projects/Testing%20Management%20System%20V2/DEPLOY.md) — Step-by-step instructions for building and deploying updates to Firebase Hosting.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+---
 
-## Expanding the ESLint configuration
+## 🚀 Development & Build Commands
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+- **Development Server:** `npm run dev`
+- **Production Build:** `npm run build`
+- **Deploy Hosting:** `npx firebase deploy --only hosting`
+
+**Live Site URL:** [https://fa-testing.web.app](https://fa-testing.web.app)

@@ -214,7 +214,7 @@ const SATRegistration = ({ email: impersonatedEmail }) => {
         return (
             <div className="glass-panel" style={{ maxWidth: '600px', margin: '40px auto', padding: '32px', textAlign: 'center', backgroundColor: 'rgba(254, 247, 224, 0.9)', border: '1px solid #fbbf24' }}>
                 <h2 style={{ color: '#92400e', marginTop: 0 }}>⚠️ Student Record Not Found</h2>
-                <p style={{ color: '#78350f' }}>Please log in with your school email account (@fryeburgacademy.org).</p>
+                <p style={{ color: '#78350f' }}>Please log in with your school email account (@fryeburgacademy.org or @myfryeburg.org).</p>
                 <p style={{ color: '#78350f', marginTop: '8px' }}>If you are logged in with your school email account, please check with Mr. Shepard to see what the issue is.</p>
             </div>
         );
