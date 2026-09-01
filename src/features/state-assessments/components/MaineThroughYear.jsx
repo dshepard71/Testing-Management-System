@@ -5,7 +5,7 @@ import * as XLSX from 'xlsx';
 import { useAuth } from '../../../context/AuthContext';
 import { decryptText } from '../../../utils/crypto';
 
-const MaineThroughYear = ({ grade = '11', impersonatedCaseload = null }) => {
+const MaineThroughYear = ({ grade = '10', impersonatedCaseload = null }) => {
     const { user, userProfile } = useAuth();
     const [students, setStudents] = useState([]);
     const [loading, setLoading] = useState(true);

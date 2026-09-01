@@ -10,6 +10,45 @@ export default function LogisticsHub() {
     const [category, setCategory] = useState('AP Testing'); // Default category
     const [activeTab, setActiveTab] = useState('Logistics'); // 'Logistics' or 'Attendance'
 
+    // Calculates the academic school year (e.g. '25-26') from a calendar date
+    const getAcademicYearFromDate = (dateStr) => {
+        if (!dateStr) return 'Other';
+        const match = dateStr.match(/\b(20\d{2})\b/);
+        if (!match) return 'Other';
+        
+        const calendarYear = parseInt(match[1]);
+        let month = 5; // default to June (5) if unparseable
+        
+        const dateMatch = dateStr.match(/\b20\d{2}-(\d{2})-\d{2}\b/);
+        if (dateMatch) {
+            month = parseInt(dateMatch[1]) - 1;
+        } else {
+            const upper = dateStr.toUpperCase();
+            if (upper.includes('JAN') || upper.includes('FEB') || upper.includes('MAR') || upper.includes('APR') || upper.includes('MAY') || upper.includes('JUN')) {
+                month = 4;
+            } else if (upper.includes('JUL') || upper.includes('AUG') || upper.includes('SEP') || upper.includes('OCT') || upper.includes('NOV') || upper.includes('DEC')) {
+                month = 8;
+            }
+        }
+        
+        const startYear = month >= 6 ? calendarYear : calendarYear - 1;
+        const endYearShort = (startYear + 1) % 100;
+        const startYearShort = startYear % 100;
+        return `${startYearShort}-${endYearShort.toString().padStart(2, '0')}`;
+    };
+
+    const currentAcademicYear = (() => {
+        const today = new Date();
+        const currentYear = today.getFullYear();
+        const month = today.getMonth();
+        const startYear = month >= 6 ? currentYear : currentYear - 1;
+        const endYearShort = (startYear + 1) % 100;
+        const startYearShort = startYear % 100;
+        return `${startYearShort}-${endYearShort.toString().padStart(2, '0')}`;
+    })();
+
+    const [selectedYear, setSelectedYear] = useState('All');
+
     const testCategories = ['AP Testing', 'Maine Science', 'Maine Through Year', 'SAT', 'Makeups'];
 
     useEffect(() => {
@@ -223,9 +262,18 @@ export default function LogisticsHub() {
         setTimeout(() => printWindow.print(), 500);
     };
 
+    // Derived unique academic years from all charts
+    const uniqueYears = Array.from(new Set(charts.map(c => getAcademicYearFromDate(c.date)))).sort((a, b) => b.localeCompare(a));
+
+    // Filter charts by selected academic year
+    const displayedCharts = charts.filter(chart => {
+        if (selectedYear === 'All') return true;
+        return getAcademicYearFromDate(chart.date) === selectedYear;
+    });
+
     // Group by Date + Session
     const groupedMap = {};
-    charts.forEach(chart => {
+    displayedCharts.forEach(chart => {
         const date = chart.date || 'Undated';
         const session = chart.session || 'All Day';
         const key = `${date}|${session}`;
@@ -276,13 +324,31 @@ export default function LogisticsHub() {
                     </div>
                 </div>
                 
-                <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,0.5)', padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    {/* Academic Year Filter */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,0.7)', padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
+                        <label style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--fa-warm-gray)' }}>YEAR</label>
+                        <select 
+                            value={selectedYear} 
+                            onChange={(e) => setSelectedYear(e.target.value)}
+                            style={{ border: 'none', background: 'transparent', outline: 'none', fontWeight: 'bold', color: 'var(--fa-blue)', cursor: 'pointer', fontSize: '13px' }}
+                        >
+                            <option value="All">All Years</option>
+                            {uniqueYears.map(yr => (
+                                <option key={yr} value={yr}>
+                                    {yr === currentAcademicYear ? `${yr} (Current)` : yr}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* Test Category Filter */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,0.7)', padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
                         <label style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--fa-warm-gray)' }}>TEST</label>
                         <select 
                             value={category} 
                             onChange={(e) => setCategory(e.target.value)}
-                            style={{ border: 'none', background: 'transparent', outline: 'none', fontWeight: 'bold', color: 'var(--fa-blue)', cursor: 'pointer' }}
+                            style={{ border: 'none', background: 'transparent', outline: 'none', fontWeight: 'bold', color: 'var(--fa-blue)', cursor: 'pointer', fontSize: '13px' }}
                         >
                             {testCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                         </select>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
 import { db } from '../../../firebase';
@@ -40,6 +40,7 @@ const MasterUpload = ({ filterByCaseload = false, staffName = '', impersonatedCa
     const [selectedIds, setSelectedIds] = useState([]);
     const [validationWarnings, setValidationWarnings] = useState([]);
     const [syncMode, setSyncMode] = useState(false);
+    const [overwriteAccommodations, setOverwriteAccommodations] = useState(true);
     const [showInactive, setShowInactive] = useState(false);
     const [importing, setImporting] = useState(false);
     const [status, setStatus] = useState('');
@@ -98,24 +99,61 @@ const MasterUpload = ({ filterByCaseload = false, staffName = '', impersonatedCa
         }
     };
 
+    // Helper to check if a cell represents a truthy checkbox
+    const isTruthy = (val) => {
+        if (!val) return false;
+        const str = String(val).trim().toLowerCase();
+        return str === 'true' || str === 'yes' || str === 'y' || str === 'x' || str === '1';
+    };
+
     const processData = (rawData) => {
         const cleaned = rawData.map((row, index) => {
             const email = (row['Email'] || row['email'] || '').trim().toLowerCase();
+            
+            // Check if the uploaded file has dedicated accommodation checkbox columns
+            const hasCheckboxAccommodations = (
+                'Small Group' in row || 'small_group' in row ||
+                'Extended Time' in row || 'extended_time' in row ||
+                'Extra Breaks' in row || 'extra_breaks' in row ||
+                'ESOL' in row || 'esol' in row ||
+                'Other' in row || 'other' in row
+            );
+
+            let accommodations = row['Accommodations'] || row['accommodations'] || '';
+            if (hasCheckboxAccommodations) {
+                const accomList = [];
+                if (isTruthy(row['Small Group'] || row['small_group'])) accomList.push('Small Group');
+                if (isTruthy(row['Extended Time'] || row['extended_time'])) accomList.push('Extended Time');
+                if (isTruthy(row['Extra Breaks'] || row['extra_breaks'])) accomList.push('Extra Breaks');
+                if (isTruthy(row['ESOL'] || row['esol'])) accomList.push('ESOL');
+                if (isTruthy(row['Other'] || row['other'])) accomList.push('Other');
+                accommodations = accomList.join(', ');
+            }
+
+            const waiverVal = row['Waiver Eligible'] || row['waiver_eligible'] || row['Waiver'] || row['waiver'];
+            let waiverEligible = undefined;
+            if (waiverVal !== undefined) {
+                waiverEligible = isTruthy(waiverVal) || String(waiverVal).toLowerCase() === 'yes' ? 'Yes' : 'No';
+            }
+
             return {
                 rowIndex: index + 2,
                 stateId: String(row['State ID'] || row['state_id'] || ''),
                 schoolId: String(row['School Student ID'] || row['School ID'] || row['student_id'] || row['User ID'] || row['user_id'] || ''),
-                firstName: row['First name'] || row['first_name'] || '',
-                middleName: row['Middle name'] || row['middle_name'] || '',
-                lastName: row['Last name'] || row['last_name'] || '',
-                dob: normalizeDOB(row['Date of birth'] || row['date_of_birth'] || ''),
+                firstName: row['First name'] || row['First Name'] || row['first_name'] || '',
+                middleName: row['Middle name'] || row['Middle Name'] || row['middle_name'] || '',
+                lastName: row['Last name'] || row['Last Name'] || row['last_name'] || '',
+                dob: normalizeDOB(row['Date of birth'] || row['Date Of Birth'] || row['date_of_birth'] || ''),
                 gender: row['Gender'] || row['gender'] || '',
-                grade: row['Student grade level'] || row['grade_level'] || '',
+                grade: row['Student grade level'] || row['Grade'] || row['grade_level'] || '',
                 email: email,
-                accommodations: row['Accommodations'] || row['accommodations'] || '',
+                accommodations: accommodations,
                 accommodationNotes: row['Accommodation Notes'] || row['accommodation_notes'] || '',
+                hasAccommodationData: hasCheckboxAccommodations || 'Accommodations' in row || 'accommodations' in row || 'Accommodation Notes' in row || 'accommodation_notes' in row,
                 advisor: row['Advisors'] || row['Advisor'] || row['advisor'] || row['Counselor'] || row['counselor'] || '',
+                caseManager: row['Case Manager'] || row['case_manager'] || '',
                 schoolProgram: row['School Program'] || row['School program'] || row['school_program'] || row['Program'] || '',
+                waiverEligible: waiverEligible,
                 uploadedAt: new Date()
             };
         }).filter(s => s.email || s.lastName);
@@ -153,7 +191,6 @@ const MasterUpload = ({ filterByCaseload = false, staffName = '', impersonatedCa
         setImporting(true);
         setStatus('Saving to Firestore...');
 
-        const protectedFields = ['paymentInfo', 'paymentRecd', 'accommodations', 'accommodationNotes', 'waiverEligible', 'waiverStatus', 'billingNotes'];
         let importedCount = 0;
         let skippedCount = 0;
 
@@ -175,10 +212,20 @@ const MasterUpload = ({ filterByCaseload = false, staffName = '', impersonatedCa
             data.forEach((student) => {
                 const studentKey = student.email ? student.email.replace(/[.#$/[\]]/g, '_') : doc(collection(db, 'master_students')).id;
                 const updateData = { status: 'Active' };
+
+                // Generic SIS protected fields unless this import specifically includes accommodation data and user allows it
+                const protectedFields = ['paymentInfo', 'paymentRecd', 'billingNotes'];
+                if (!student.hasAccommodationData || !overwriteAccommodations) {
+                    protectedFields.push('accommodations', 'accommodationNotes');
+                }
+                if (student.waiverEligible === undefined) {
+                    protectedFields.push('waiverEligible', 'waiverStatus');
+                }
+
                 Object.entries(student).forEach(([key, value]) => {
-                    if (protectedFields.includes(key)) return;
+                    if (protectedFields.includes(key) || key === 'hasAccommodationData' || key === 'rowIndex') return;
                     if (value !== '' && value !== null && value !== undefined) {
-                        if (key === 'dob' || key === 'stateId') {
+                        if (key === 'dob' || key === 'stateId' || key === 'accommodations' || key === 'accommodationNotes') {
                             updateData[key] = encryptText(value);
                         } else {
                             updateData[key] = value;
@@ -197,7 +244,7 @@ const MasterUpload = ({ filterByCaseload = false, staffName = '', impersonatedCa
             });
 
             await batch.commit();
-            setStatus(`Successfully imported ${importedCount} records. Preserved protected fields.`);
+            setStatus(`Successfully imported ${importedCount} records. Database updated and encrypted.`);
             setData([]);
             setIsImportModalOpen(false);
         } catch (error) {
@@ -307,7 +354,13 @@ const MasterUpload = ({ filterByCaseload = false, staffName = '', impersonatedCa
 
         if (filterGrade !== 'All' && String(s.grade) !== filterGrade) return false;
         if (filterProgram !== 'All' && s.schoolProgram !== filterProgram) return false;
-        if (filterAdvisor !== 'All' && s.advisor !== filterAdvisor) return false;
+        
+        // Match individual advisor substring
+        if (filterAdvisor !== 'All') {
+            const advStr = (s.advisor || '').toLowerCase();
+            if (!advStr.includes(filterAdvisor.toLowerCase())) return false;
+        }
+
         if (filterAccom === 'Has Accommodations' && !s.accommodations) return false;
         if (filterAccom === 'No Accommodations' && s.accommodations) return false;
 
@@ -330,9 +383,62 @@ const MasterUpload = ({ filterByCaseload = false, staffName = '', impersonatedCa
         return true;
     }).sort((a, b) => (a.lastName || '').localeCompare(b.lastName || ''));
 
+    // Extract unique individual advisors from comma-separated strings
+    const individualAdvisors = useMemo(() => {
+        const set = new Set();
+        students.forEach(s => {
+            if (s.advisor) {
+                s.advisor.split(',').forEach(name => {
+                    const cleanName = name.trim();
+                    if (cleanName) set.add(cleanName);
+                });
+            }
+        });
+        return ['All', ...Array.from(set).sort()];
+    }, [students]);
+
     const grades = ['All', ...new Set(students.map(s => String(s.grade)).filter(Boolean))].sort();
     const programs = ['All', ...new Set(students.map(s => s.schoolProgram).filter(Boolean))].sort();
-    const advisors = ['All', ...new Set(students.map(s => s.advisor).filter(Boolean))].sort();
+
+    // Export current filtered list as CSV
+    const handleExportCSV = () => {
+        const rowsToExport = filteredStudents.map(s => {
+            const accom = s.accommodations || '';
+            return {
+                'State ID': s.stateId || '',
+                'School ID': s.schoolId || '',
+                'Last Name': s.lastName || '',
+                'First Name': s.firstName || '',
+                'Middle Name': s.middleName || '',
+                'Email': s.email || '',
+                'Grade': s.grade || '',
+                'Gender': s.gender || '',
+                'Advisors': s.advisor || '',
+                'Case Manager': s.caseManager || '',
+                'School Program': s.schoolProgram || '',
+                'Small Group': accom.includes('Small Group') ? 'Yes' : 'No',
+                'Extended Time': accom.includes('Extended Time') ? 'Yes' : 'No',
+                'Extra Breaks': accom.includes('Extra Breaks') ? 'Yes' : 'No',
+                'ESOL': accom.includes('ESOL') ? 'Yes' : 'No',
+                'Other': accom.includes('Other') ? 'Yes' : 'No',
+                'Accommodation Notes': s.accommodationNotes || '',
+                'Waiver Eligible': s.waiverEligible || 'No'
+            };
+        });
+
+        const csv = Papa.unparse(rowsToExport);
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        const fileName = filterAdvisor !== 'All' 
+            ? `Accommodations_${filterAdvisor.replace(/\s+/g, '_')}.csv` 
+            : `Master_Accommodations_Roster_${new Date().toISOString().split('T')[0]}.csv`;
+        link.setAttribute('href', url);
+        link.setAttribute('download', fileName);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
 
     if (loading) return <div style={{ padding: '20px', color: 'var(--fa-warm-gray)' }}>Loading Master Student List...</div>;
 
@@ -362,9 +468,9 @@ const MasterUpload = ({ filterByCaseload = false, staffName = '', impersonatedCa
                             <option value="All">All Programs</option>
                             {programs.filter(p => p !== 'All').map(p => <option key={p} value={p}>{p}</option>)}
                         </select>
-                        <select value={filterAdvisor} onChange={e => setFilterAdvisor(e.target.value)} style={{ padding: '4px 8px', borderRadius: '6px', border: 'none', fontSize: '12px', backgroundColor: 'transparent', outline: 'none', fontWeight: '600', color: 'var(--fa-dark-blue)', maxWidth: '110px' }}>
+                        <select value={filterAdvisor} onChange={e => setFilterAdvisor(e.target.value)} style={{ padding: '4px 8px', borderRadius: '6px', border: 'none', fontSize: '12px', backgroundColor: 'transparent', outline: 'none', fontWeight: '600', color: 'var(--fa-dark-blue)', maxWidth: '140px' }}>
                             <option value="All">All Advisors</option>
-                            {advisors.filter(a => a !== 'All').map(a => <option key={a} value={a}>{a}</option>)}
+                            {individualAdvisors.filter(a => a !== 'All').map(a => <option key={a} value={a}>{a}</option>)}
                         </select>
                         <select value={filterAccom} onChange={e => setFilterAccom(e.target.value)} style={{ padding: '4px 8px', borderRadius: '6px', border: 'none', fontSize: '12px', backgroundColor: 'transparent', outline: 'none', fontWeight: '600', color: 'var(--fa-dark-blue)' }}>
                             <option value="All">Accommodations...</option>
@@ -390,6 +496,15 @@ const MasterUpload = ({ filterByCaseload = false, staffName = '', impersonatedCa
                         />
                         Show Inactive
                     </label>
+
+                    <button
+                        onClick={handleExportCSV}
+                        style={{ padding: '8px 16px', backgroundColor: 'white', color: 'var(--fa-dark-blue)', border: '1px solid var(--glass-border)', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                        title="Export current view with accommodation checkboxes to Excel/CSV"
+                    >
+                        📥 Export CSV ({filteredStudents.length})
+                    </button>
+
                     {effectiveRole === 'admin' && (
                         <button
                             onClick={() => setIsImportModalOpen(true)}
@@ -595,7 +710,10 @@ const MasterUpload = ({ filterByCaseload = false, staffName = '', impersonatedCa
                             />
                             <label htmlFor="master-file-upload" style={{ cursor: 'pointer' }}>
                                 <div style={{ fontSize: '40px', marginBottom: '10px' }}>📁</div>
-                                <div style={{ color: 'var(--fa-blue)', fontWeight: 'bold', fontSize: '14px' }}>Click to select CSV or XLSX spreadsheet</div>
+                                <div style={{ color: 'var(--fa-blue)', fontWeight: 'bold', fontSize: '15px' }}>Click to select CSV or XLSX spreadsheet</div>
+                                <div style={{ fontSize: '12px', color: 'var(--fa-dark-blue)', marginTop: '6px', fontWeight: 'bold' }}>
+                                    💡 Recommended SIS Export: <span style={{ color: 'var(--fa-red)' }}>"All Testing WDS"</span>
+                                </div>
                                 <div style={{ fontSize: '11px', color: 'var(--fa-warm-gray)', marginTop: '4px' }}>Expects columns: State ID, Student grade level, Email, First name, Last name, Advisors</div>
                             </label>
                         </div>
@@ -615,16 +733,29 @@ const MasterUpload = ({ filterByCaseload = false, staffName = '', impersonatedCa
                             </div>
                         )}
 
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--glass-border)', paddingTop: '20px', flexWrap: 'wrap', gap: '10px' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', fontSize: '12px', color: 'var(--fa-dark-blue)', cursor: 'pointer', fontWeight: '600' }}>
-                                <input
-                                    type="checkbox"
-                                    checked={syncMode}
-                                    onChange={(e) => setSyncMode(e.target.checked)}
-                                    style={{ marginRight: '6px', width: '16px', height: '16px', accentColor: 'var(--fa-blue)' }}
-                                />
-                                Inactive Sync Mode (Mark omitted users as Inactive)
-                            </label>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--glass-border)', paddingTop: '20px', flexWrap: 'wrap', gap: '12px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', fontSize: '12px', color: 'var(--fa-dark-blue)', cursor: 'pointer', fontWeight: '600' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={overwriteAccommodations}
+                                        onChange={(e) => setOverwriteAccommodations(e.target.checked)}
+                                        style={{ marginRight: '8px', width: '16px', height: '16px', accentColor: 'var(--fa-blue)' }}
+                                    />
+                                    ⚡ Update / Overwrite Accommodations from this file (if columns present)
+                                </label>
+
+                                <label style={{ display: 'flex', alignItems: 'center', fontSize: '12px', color: 'var(--fa-dark-blue)', cursor: 'pointer', fontWeight: '600' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={syncMode}
+                                        onChange={(e) => setSyncMode(e.target.checked)}
+                                        style={{ marginRight: '8px', width: '16px', height: '16px', accentColor: 'var(--fa-blue)' }}
+                                    />
+                                    🔄 Inactive Sync Mode (Mark omitted students as Inactive)
+                                </label>
+                            </div>
+
                             <div style={{ display: 'flex', gap: '8px' }}>
                                 <button onClick={() => setIsImportModalOpen(false)} style={{ padding: '8px 16px', border: '1px solid #ccc', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>Cancel</button>
                                 <button
@@ -635,7 +766,7 @@ const MasterUpload = ({ filterByCaseload = false, staffName = '', impersonatedCa
                                         cursor: (data.length === 0 || importing) ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '13px', opacity: (data.length === 0 || importing) ? 0.6 : 1
                                     }}
                                 >
-                                    {importing ? 'Importing...' : 'Save to System'}
+                                    {importing ? 'Saving...' : `Import & Save (${data.length} Records)`}
                                 </button>
                             </div>
                         </div>

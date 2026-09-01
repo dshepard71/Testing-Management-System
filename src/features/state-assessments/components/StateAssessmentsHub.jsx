@@ -36,8 +36,8 @@ const StateAssessmentsHub = () => {
                 </button>
             </div>
 
-            {activeTab === 'science' && <MaineScienceTest />}
-            {activeTab === 'through_year' && <MaineThroughYear />}
+            {activeTab === 'science' && <MaineScienceTest grade="11" />}
+            {activeTab === 'through_year' && <MaineThroughYear grade="10" />}
             {activeTab === 'map_report' && <MAPGrowthReport />}
             {activeTab === 'map_upload' && <MAPUpload />}
         </div>

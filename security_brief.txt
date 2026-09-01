@@ -18,8 +18,9 @@ To address IT security concerns and ensure compliance with FERPA (Family Educati
 
 The system does not manage, store, or process user credentials. It is entirely integrated with Google OAuth 2.0 / Workspace Single Sign-On (SSO).
 
-* Strict Hosted Domain Enforcement: The client authentication layer dynamically enforces strict domain restrictions. In production, Google's login interface blocks all personal Google accounts (@gmail.com) at the front door. Users are restricted exclusively to the school's official Google Workspace domain:
-  - @fryeburgacademy.org (Enforced globally for all Faculty, Counselors, Admins, and Students).
+* Strict Hosted Domain Enforcement: The client authentication layer dynamically enforces strict domain restrictions. In production, Google's login interface blocks all personal Google accounts (@gmail.com) at the front door. Users are restricted exclusively to the school's official Google Workspace domains:
+  - @fryeburgacademy.org (Faculty, Staff, Counselors, Admins, and Students)
+  - @myfryeburg.org (Student domain)
 * Role-Based Isolation: Since both staff and students share the school domain, strict role-based access controls (RBAC) are enforced immediately post-login. Students are automatically restricted to the 'student' role and have no staff dashboard access.
 * Token Verification: When a user logs in, Firebase generates a secure, cryptographically signed JSON Web Token (JWT). Every single database query sent from the client browser carries this token.
 * Instant Deprovisioning: Because authentication is tied to Google Workspace, when an IT administrator disables or removes an employee or student account in the main Workspace console, their access to the testing portal is instantly and globally revoked.

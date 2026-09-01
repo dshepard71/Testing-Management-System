@@ -37,10 +37,14 @@ service cloud.firestore {
     function isCaseManager() {
       return request.auth != null && getUserData().role == 'case_manager';
     }
+
+    function isAccommodationsDirector() {
+      return request.auth != null && getUserData().role == 'accommodations_director';
+    }
     
     // Check if the user is a staff member of any kind
     function isStaff() {
-      return isAdmin() || isCounselor() || isCaseManager() || isBusiness() || isProctor();
+      return isAdmin() || isCounselor() || isCaseManager() || isBusiness() || isProctor() || isAccommodationsDirector();
     }
 
     // ==========================================
@@ -54,12 +58,19 @@ service cloud.firestore {
         isAdmin() ||
         resource.data.email == request.auth.token.email
       );
-      // Prevent users from changing their own role to "admin" upon registration
-      allow write: if isAdmin() || (
+      // Allow user creation on first sign-in (must be own UID and default to student, unless admin)
+      allow create: if isAdmin() || (
+        request.auth != null &&
+        request.auth.uid == userId &&
+        (request.resource.data.role == 'student' || !('role' in request.resource.data))
+      );
+      // Prevent users from escalating their own role upon update
+      allow update: if isAdmin() || (
         request.auth != null && 
         request.auth.uid == userId && 
         request.resource.data.role == resource.data.role
       );
+      allow delete: if isAdmin();
     }
 
     // Rules for Master Students

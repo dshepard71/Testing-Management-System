@@ -235,62 +235,113 @@ const SATManager = () => {
             let importedCount = 0;
             let skippedCount = 0;
 
+            const masterMap = {};
+            masterStudents.forEach(m => {
+                if (m.email) masterMap[m.email.toLowerCase().trim()] = m;
+            });
+
             rows.forEach((row, index) => {
-                if (index === 0 && row.toLowerCase().includes('email')) return;
-                const cols = row.split('\t');
-                if (cols.length < 4) return;
+                if (!row.trim()) return;
+                if (index === 0 && (row.toLowerCase().includes('email') || row.toLowerCase().includes('timestamp'))) return;
+                
+                // Support both Tab-separated (copy-paste from Sheets) and Comma-separated (CSV)
+                let cols = row.split('\t');
+                if (cols.length === 1 && row.includes(',')) {
+                    cols = row.split(',');
+                }
+                if (cols.length < 3) return;
 
-                const email = cols[1]?.trim();
-                const lastName = cols[2]?.trim();
-                const firstName = cols[3]?.trim();
-                const info = cols[4] || "";
-                const counselor = cols[5] || "";
-                const checkOne = cols[6] || "";
+                // Detect email column: either cols[1] (Google Form with timestamp) or cols[0]
+                let email = '';
+                let rawName = '';
+                let rawGrade = '';
+                let rawExam = '';
 
-                if (!email || !lastName) return;
-
-                const docId = email.toLowerCase().replace(/[.#$/[\]]/g, '_');
-
-                if (existingDocIds.has(docId)) {
-                    skippedCount++;
-                    return;
+                if (cols[1] && cols[1].includes('@')) {
+                    // Standard Google Form: [0] Timestamp, [1] Email, [2] Name, [3] Grade, [4] Exam
+                    email = cols[1].trim().toLowerCase();
+                    rawName = cols[2]?.trim() || '';
+                    rawGrade = cols[3]?.trim() || '';
+                    rawExam = cols[4]?.trim() || '';
+                } else if (cols[0] && cols[0].includes('@')) {
+                    // Export without timestamp: [0] Email, [1] Name, [2] Grade, [3] Exam
+                    email = cols[0].trim().toLowerCase();
+                    rawName = cols[1]?.trim() || '';
+                    rawGrade = cols[2]?.trim() || '';
+                    rawExam = cols[3]?.trim() || '';
+                } else {
+                    // Fallback to searching any column for an email
+                    const foundEmailCol = cols.find(c => c.includes('@'));
+                    if (foundEmailCol) email = foundEmailCol.trim().toLowerCase();
                 }
 
-                let studentType = 'boarding';
-                if (info.includes('district') || info.includes('commuting')) studentType = 'day';
-                let waiverEligible = info.includes('waiver') ? 'Yes' : 'No';
-                let testType = 'SAT';
-                if (checkOne.toUpperCase().includes('PSAT')) testType = 'PSAT';
+                if (!email) return;
 
-                const now = new Date();
-                const academicYear = now.getMonth() >= 6 ? now.getFullYear() + 1 : now.getFullYear();
+                const docId = email.replace(/[.#$/[\]]/g, '_');
+                const master = masterMap[email];
 
+                // Determine official First Name and Last Name:
+                let firstName = master?.firstName || '';
+                let lastName = master?.lastName || '';
+                
+                // If not in master list, parse rawName:
+                if (!firstName && !lastName && rawName) {
+                    if (rawName.includes(',')) {
+                        const parts = rawName.split(',');
+                        lastName = parts[0]?.trim();
+                        firstName = parts[1]?.trim();
+                    } else {
+                        const parts = rawName.split(' ');
+                        firstName = parts[0]?.trim();
+                        lastName = parts.slice(1).join(' ').trim();
+                    }
+                }
+
+                // Determine Grade:
                 let grade = '11';
-                if (checkOne.includes(String(academicYear))) grade = '12';
-                else if (checkOne.includes(String(academicYear + 1))) grade = '11';
-                else if (checkOne.includes(String(academicYear + 2))) grade = '10';
-                else if (checkOne.includes(String(academicYear + 3))) grade = '09';
+                if (master?.grade) {
+                    grade = String(master.grade).replace(/[^0-9]/g, '');
+                } else if (rawGrade) {
+                    grade = String(rawGrade).replace(/[^0-9]/g, '');
+                }
 
+                // Determine Test Type:
+                let testType = 'SAT';
+                const examCheck = (rawExam || '').toUpperCase();
+                if (examCheck.includes('PSAT')) testType = 'PSAT';
+                else if (examCheck.includes('SAT')) testType = 'SAT';
+
+                let studentType = master?.schoolProgram || master?.studentType || 'boarding';
+                if (String(studentType).toLowerCase().includes('day') || String(studentType).toLowerCase().includes('district') || String(studentType).toLowerCase().includes('commuter')) {
+                    studentType = 'day';
+                }
+
+                const counselor = master?.advisor || master?.counselor || '';
+                const waiverEligible = master?.waiverEligible || 'No';
                 const fee = waiverEligible === 'Yes' ? 0 : (testType === 'SAT' ? 60 : 18);
-                const docRef = doc(collection(db, 'sat_registrations'), email.toLowerCase().replace(/[.#$/[\]]/g, '_'));
+                const docRef = doc(collection(db, 'sat_registrations'), docId);
                 
                 batch.set(docRef, {
-                    firstName,
-                    lastName,
-                    email,
-                    studentType,
-                    counselor,
-                    testType,
-                    grade,
-                    waiverEligible,
+                    firstName: firstName || 'Unknown',
+                    lastName: lastName || 'Student',
+                    email: email,
+                    studentType: studentType,
+                    counselor: counselor,
+                    testType: testType,
+                    grade: grade || '11',
+                    waiverEligible: waiverEligible,
                     feeAmount: fee,
-                    testingCycle: 'Spring 2026',
+                    testingCycle: 'Fall 2026',
                     createdAt: serverTimestamp(),
                     lastUpdated: serverTimestamp()
                 }, { merge: true });
 
+                if (existingDocIds.has(docId)) {
+                    skippedCount++;
+                } else {
+                    importedCount++;
+                }
                 existingDocIds.add(docId);
-                importedCount++;
             });
 
             await batch.commit();
@@ -720,6 +771,43 @@ const SATManager = () => {
                                 <button type="submit" style={{ padding: '8px 16px', backgroundColor: 'var(--fa-blue)', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Add Student</button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {showBulkModal && (
+                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, backdropFilter: 'blur(3px)' }}>
+                    <div className="glass-panel" style={{ backgroundColor: 'white', padding: '32px', borderRadius: '12px', width: '90%', maxWidth: '650px', maxHeight: '85vh', overflowY: 'auto' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                            <h3 style={{ margin: 0, color: 'var(--fa-dark-blue)' }}>Bulk Import SAT/PSAT Registrations</h3>
+                            <button onClick={() => setShowBulkModal(false)} style={{ border: 'none', background: 'none', fontSize: '20px', cursor: 'pointer', color: '#888' }}>&times;</button>
+                        </div>
+                        <p style={{ fontSize: '12px', color: 'var(--fa-warm-gray)', marginTop: 0, marginBottom: '16px' }}>
+                            Paste rows directly from Google Sheets or Excel. Expects columns: <b>Timestamp, Email, Last Name, First Name, Student Status, Counselor, Exam/Grade</b>.
+                        </p>
+                        
+                        <textarea
+                            placeholder="Paste spreadsheet rows here (Ctrl+V)..."
+                            value={bulkText}
+                            onChange={e => setBulkText(e.target.value)}
+                            rows={10}
+                            style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #ccc', fontSize: '12px', fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box' }}
+                        />
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' }}>
+                            <button type="button" onClick={() => setShowBulkModal(false)} style={{ padding: '8px 16px', border: '1px solid #ccc', borderRadius: '6px', cursor: 'pointer', backgroundColor: 'white' }}>Cancel</button>
+                            <button
+                                type="button"
+                                onClick={handleBulkImport}
+                                disabled={!bulkText.trim()}
+                                style={{
+                                    padding: '8px 24px', backgroundColor: 'var(--fa-blue)', color: 'white', border: 'none', borderRadius: '6px',
+                                    cursor: !bulkText.trim() ? 'not-allowed' : 'pointer', fontWeight: 'bold', opacity: !bulkText.trim() ? 0.6 : 1
+                                }}
+                            >
+                                Import Registrations
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

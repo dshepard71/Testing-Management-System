@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
-const AdminSidebar = () => {
+const AdminSidebar = ({ onOpenCheatSheet }) => {
     const { userProfile } = useAuth();
     const effectiveRole = userProfile?.role || 'student';
 
@@ -239,16 +239,28 @@ const AdminSidebar = () => {
                     </>
                 )}
                 
-                {!isCollapsed && <div style={headerStyle}>COUNSELORS & VIEWS</div>}
+                {!isCollapsed && <div style={headerStyle}>HELP & REFERENCE</div>}
                 <div>
-                    <Link to="/counselor" style={navItemStyle('/counselor')} title="Counselor Dashboard">
+                    <button
+                        onClick={onOpenCheatSheet}
+                        style={{
+                            ...navItemStyle('#'),
+                            backgroundColor: 'transparent',
+                            color: 'var(--fa-blue)',
+                            fontWeight: 'bold',
+                            border: 'none',
+                            width: '100%',
+                            textAlign: 'left'
+                        }}
+                        title="Operations Cheat Sheet"
+                    >
                         {isCollapsed ? (
                             <>
-                                <span style={{ fontSize: '18px' }}>🎓</span>
-                                <span style={labelStyle}>Counselor</span>
+                                <span style={{ fontSize: '18px' }}>📖</span>
+                                <span style={labelStyle}>Help</span>
                             </>
-                        ) : '🎓 Counselor View (Admin)'}
-                    </Link>
+                        ) : '📖 Quick Cheat Sheet'}
+                    </button>
                 </div>
             </div>
         </aside>

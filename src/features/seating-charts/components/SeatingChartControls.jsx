@@ -149,20 +149,31 @@ const SeatingChartControls = ({
     return (
         <div className="glass-panel no-print" style={{ padding: '20px', marginBottom: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
             
-            {/* Accordion Toggle for Saved Charts */}
-            <div>
+            {/* Prominent Header / Registry Drawer Toggle */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
                 <button
                     onClick={() => setShowSavedCharts(!showSavedCharts)}
                     style={{
-                        background: 'none', border: 'none', color: 'var(--fa-blue)',
-                        cursor: 'pointer', fontWeight: 'bold', fontSize: '14px',
-                        display: 'flex', alignItems: 'center', gap: '6px'
+                        padding: '8px 16px', borderRadius: '8px', border: '1px solid var(--fa-blue)',
+                        backgroundColor: showSavedCharts ? 'var(--fa-blue)' : 'rgba(0, 70, 139, 0.08)',
+                        color: showSavedCharts ? 'white' : 'var(--fa-dark-blue)',
+                        cursor: 'pointer', fontWeight: 'bold', fontSize: '13px',
+                        display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s'
                     }}
                 >
-                    {showSavedCharts ? '▼ Hide Saved Charts Registry' : '▶ Show Saved Charts Registry'}
+                    <span>{showSavedCharts ? '📂' : '📁'}</span>
+                    <span>{showSavedCharts ? 'Hide Saved Charts Registry' : 'View Saved Charts & Archive Registry'}</span>
+                    <span style={{ fontSize: '11px', background: showSavedCharts ? 'rgba(255,255,255,0.25)' : 'var(--fa-blue)', color: 'white', padding: '2px 6px', borderRadius: '10px' }}>
+                        {savedCharts.length} Saved
+                    </span>
                 </button>
 
-                {showSavedCharts && (
+                <div style={{ fontSize: '12px', color: 'var(--fa-warm-gray)', fontStyle: 'italic' }}>
+                    💡 To start a new chart, select test details below and click Save.
+                </div>
+            </div>
+
+            {showSavedCharts && (
                     <div style={{
                         marginTop: '12px', maxHeight: '350px', overflowY: 'auto',
                         border: '1px solid #dadce0', padding: '16px', borderRadius: '8px',
@@ -250,7 +261,6 @@ const SeatingChartControls = ({
                         )}
                     </div>
                 )}
-            </div>
 
             {/* Selector Grid */}
             <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end' }}>

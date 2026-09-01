@@ -267,25 +267,6 @@ const StudentSchedule = ({ email: propEmail = null }) => {
                 </div>
             )}
 
-            {/* Custom Accommodation Alert Block */}
-            {studentData.accommodations && (
-                <div style={{
-                    marginTop: '24px', padding: '16px', borderRadius: '12px',
-                    border: '1.5px solid var(--fa-gold)', backgroundColor: 'rgba(234, 176, 16, 0.06)',
-                    color: 'var(--fa-dark-blue)', display: 'flex', gap: '10px', alignItems: 'flex-start'
-                }}>
-                    <span style={{ fontSize: '20px' }}>⚡</span>
-                    <div>
-                        <div style={{ fontWeight: 'bold', fontSize: '13px' }}>Approved Special Testing Accommodations:</div>
-                        <div style={{ fontSize: '12px', marginTop: '3px', fontWeight: '600' }}>{studentData.accommodations}</div>
-                        {studentData.accommodationNotes && (
-                            <div style={{ fontSize: '11px', color: 'var(--fa-warm-gray)', marginTop: '3px', fontStyle: 'italic' }}>
-                                Notes: {studentData.accommodationNotes}
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
 
             {/* Terms Footer */}
             <div style={{

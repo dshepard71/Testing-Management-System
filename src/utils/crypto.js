@@ -17,8 +17,8 @@ const getEncryptionKey = () => {
         const clientPrefix = import.meta.env.VITE_ENCRYPTION_KEY || '';
         return clientPrefix + activeKey;
     }
-    // Fallback/Local Dev mode (prior to login or using the unsplit local dev key)
-    return import.meta.env.VITE_ENCRYPTION_KEY || 'fa-testing-system-v2-super-secret-key-928374928';
+    // Fallback/Local Dev mode (prior to login or using the local dev key from env)
+    return import.meta.env.VITE_ENCRYPTION_KEY || '';
 };
 
 /**

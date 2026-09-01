@@ -25,6 +25,7 @@ import StudentFormList from './features/forms/components/StudentFormList';
 import StudentFormView from './features/forms/components/StudentFormView';
 import StudentPortal from './features/student/components/StudentPortal';
 import ProctorDashboard from './features/counselor/components/ProctorDashboard';
+import HelpGuide from './features/counselor/components/HelpGuide';
 import './App.css';
 
 const DashboardLanding = () => (
@@ -130,11 +131,16 @@ const ImpersonationBanner = () => {
 };
 
 function App() {
-  const { user, userProfile, loginWithGoogle, logout, loading } = useAuth();
+  const { user, userProfile, loginWithGoogle, loginWithEmail, logout, loading } = useAuth();
   
   const effectiveRole = userProfile?.role || 'student';
 
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [showPasswordLogin, setShowPasswordLogin] = useState(false);
+  const [emailInput, setEmailInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 768);
@@ -142,11 +148,28 @@ function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const handleLogin = async () => {
+  const handleGoogleLogin = async () => {
+    setAuthError('');
     try {
       await loginWithGoogle();
     } catch (err) {
       console.error("Login Error:", err);
+      setAuthError(err.message || 'Google login failed');
+    }
+  };
+
+  const handleEmailLogin = async (e) => {
+    e.preventDefault();
+    if (!emailInput || !passwordInput) return;
+    setAuthError('');
+    setAuthLoading(true);
+    try {
+      await loginWithEmail(emailInput.trim(), passwordInput);
+    } catch (err) {
+      console.error("Email login error:", err);
+      setAuthError(err.message || 'Invalid email or password');
+    } finally {
+      setAuthLoading(false);
     }
   };
 
@@ -157,19 +180,84 @@ function App() {
   if (!user) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', backgroundColor: 'var(--fa-blue)', fontFamily: 'Myriad Pro, sans-serif' }}>
-        <div className="glass-panel" style={{ padding: '40px', textAlign: 'center', backgroundColor: 'rgba(255,255,255,0.95)' }}>
-          <h1 style={{ color: 'var(--fa-dark-blue)', marginBottom: '10px' }}>Fryeburg Academy</h1>
-          <h2 style={{ color: 'var(--fa-warm-gray)', marginTop: 0, marginBottom: '30px', fontSize: '18px' }}>Testing Management V2</h2>
-          <button 
-            onClick={handleLogin}
-            style={{ padding: '12px 24px', backgroundColor: 'var(--fa-red)', color: 'white', border: 'none', borderRadius: '8px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer' }}
-          >
-            Sign in with FA Google Account
-          </button>
+        <div className="glass-panel" style={{ padding: '40px', textAlign: 'center', backgroundColor: 'rgba(255,255,255,0.95)', minWidth: '380px', maxWidth: '440px', borderRadius: '16px', boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }}>
+          <h1 style={{ color: 'var(--fa-dark-blue)', marginBottom: '6px', fontSize: '24px' }}>Fryeburg Academy</h1>
+          <h2 style={{ color: 'var(--fa-warm-gray)', marginTop: 0, marginBottom: '24px', fontSize: '15px' }}>Testing Management System V2</h2>
+          
+          {authError && (
+            <div style={{ padding: '10px 14px', backgroundColor: 'rgba(158, 36, 50, 0.1)', color: 'var(--fa-red)', borderRadius: '8px', fontSize: '13px', marginBottom: '16px', textAlign: 'left', border: '1px solid rgba(158, 36, 50, 0.2)' }}>
+              ⚠️ {authError}
+            </div>
+          )}
+
+          {!showPasswordLogin ? (
+            <>
+              <button 
+                onClick={handleGoogleLogin}
+                style={{ width: '100%', padding: '12px 20px', backgroundColor: 'var(--fa-red)', color: 'white', border: 'none', borderRadius: '8px', fontSize: '15px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', boxShadow: '0 4px 12px rgba(158, 36, 50, 0.2)' }}
+              >
+                <span>🔑</span> Sign in with FA Google Account
+              </button>
+
+              <div style={{ marginTop: '24px', borderTop: '1px solid #eee', paddingTop: '16px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowPasswordLogin(true)}
+                  style={{ background: 'none', border: 'none', color: 'var(--fa-blue)', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}
+                >
+                  🔐 Administrator Email & Password Sign In
+                </button>
+              </div>
+            </>
+          ) : (
+            <form onSubmit={handleEmailLogin} style={{ display: 'flex', flexDirection: 'column', gap: '12px', textAlign: 'left' }}>
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--fa-dark-blue)', display: 'block', marginBottom: '4px' }}>Admin Email</label>
+                <input
+                  type="email"
+                  placeholder="e.g. djdshep@gmail.com"
+                  value={emailInput}
+                  onChange={(e) => setEmailInput(e.target.value)}
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #ccc', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
+                  required
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--fa-dark-blue)', display: 'block', marginBottom: '4px' }}>Password</label>
+                <input
+                  type="password"
+                  placeholder="••••••••"
+                  value={passwordInput}
+                  onChange={(e) => setPasswordInput(e.target.value)}
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #ccc', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
+                  required
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={authLoading}
+                style={{ marginTop: '8px', padding: '12px', backgroundColor: 'var(--fa-blue)', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '14px', cursor: authLoading ? 'default' : 'pointer' }}
+              >
+                {authLoading ? 'Signing in...' : 'Sign In with Password'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setShowPasswordLogin(false); setAuthError(''); }}
+                style={{ background: 'none', border: 'none', color: 'var(--fa-warm-gray)', fontSize: '12px', cursor: 'pointer', textAlign: 'center', marginTop: '6px' }}
+              >
+                ← Back to Google Sign In
+              </button>
+            </form>
+          )}
         </div>
       </div>
     );
   }
+
+  const [showCheatSheet, setShowCheatSheet] = useState(false);
 
   // Strict route-level permission guard
   const ProtectedRoute = ({ allowedRoles, children }) => {
@@ -182,22 +270,45 @@ function App() {
   return (
     <Router>
       <div style={{ display: 'flex', width: '100vw', height: '100vh', overflow: 'hidden' }}>
-        {(effectiveRole === 'admin' || effectiveRole === 'accommodations_director') && <AdminSidebar />}
+        {(effectiveRole === 'admin' || effectiveRole === 'accommodations_director') && <AdminSidebar onOpenCheatSheet={() => setShowCheatSheet(true)} />}
         <main style={{ flex: 1, padding: isMobile ? '16px' : '32px', overflowY: 'auto', backgroundColor: 'var(--glass-bg)' }}>
           <div style={{ maxWidth: '1600px', margin: '0 auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '20px' }}>
-              <div style={{ fontSize: '14px', color: 'var(--fa-warm-gray)' }}>
-                Logged in as <b>{user.email}</b>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
+              <div>
+                <button
+                  onClick={() => setShowCheatSheet(true)}
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: 'white',
+                    color: 'var(--fa-blue)',
+                    border: '1.5px solid var(--fa-blue)',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontWeight: 'bold',
+                    fontSize: '13px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    boxShadow: '0 2px 6px rgba(0,70,139,0.08)'
+                  }}
+                >
+                  <span>📖</span> Operations Cheat Sheet
+                </button>
+              </div>
+              <div style={{ fontSize: '14px', color: 'var(--fa-warm-gray)', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                <span>Logged in as <b>{user.email}</b></span>
                 {userProfile?.isImpersonated && (
-                  <span style={{ marginLeft: '12px', color: 'var(--fa-red)', fontWeight: 'bold', fontSize: '12px', backgroundColor: 'rgba(158, 36, 50, 0.08)', padding: '4px 8px', borderRadius: '4px' }}>
+                  <span style={{ color: 'var(--fa-red)', fontWeight: 'bold', fontSize: '12px', backgroundColor: 'rgba(158, 36, 50, 0.08)', padding: '4px 8px', borderRadius: '4px' }}>
                     🕵️ IMPERSONATING: {userProfile.role.toUpperCase()}
                   </span>
                 )}
-                <button onClick={logout} style={{ marginLeft: '16px', padding: '6px 12px', borderRadius: '6px', border: '1px solid #ccc', cursor: 'pointer', backgroundColor: 'white' }}>Sign Out</button>
+                <button onClick={logout} style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #ccc', cursor: 'pointer', backgroundColor: 'white' }}>Sign Out</button>
               </div>
             </div>
             
             <ImpersonationBanner />
+
+            {showCheatSheet && <HelpGuide role={effectiveRole} onClose={() => setShowCheatSheet(false)} />}
 
             <Routes>
               <Route path="/" element={

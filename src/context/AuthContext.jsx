@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { auth, googleProvider, db } from '../firebase';
-import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
+import { onAuthStateChanged, signInWithPopup, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { doc, getDoc, setDoc, deleteDoc, onSnapshot, deleteField } from 'firebase/firestore';
 import { setSystemEncryptionKey } from '../utils/crypto';
 
@@ -54,6 +54,10 @@ export const AuthProvider = ({ children }) => {
         }
         
         return result;
+    };
+
+    const loginWithEmail = async (email, password) => {
+        return signInWithEmailAndPassword(auth, email, password);
     };
 
     const logout = () => {
@@ -189,6 +193,7 @@ export const AuthProvider = ({ children }) => {
         userProfile: getEffectiveProfile(),
         actualProfile: userProfile,
         loginWithGoogle,
+        loginWithEmail,
         logout,
         loading,
         adminEmails,
