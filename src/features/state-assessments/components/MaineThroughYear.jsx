@@ -33,7 +33,9 @@ const MaineThroughYear = ({ grade = '10', impersonatedCaseload = null }) => {
                 return {
                     id: doc.id,
                     ...data,
-                    stateId: decryptText(data.stateId || '')
+                    stateId: decryptText(data.stateId || ''),
+                    accommodations: decryptText(data.accommodations || ''),
+                    accommodationNotes: decryptText(data.accommodationNotes || '')
                 };
             });
 

@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { db } from '../../../firebase';
 import { collection, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp, writeBatch, getDocs, setDoc } from 'firebase/firestore';
-import Papa from 'papaparse';
-import { decryptText } from '../../../utils/crypto';
+import { decryptText, encryptText } from '../../../utils/crypto';
 
 const normalizeDOB = (dob) => {
     if (!dob) return '';
@@ -37,10 +36,15 @@ const SATManager = () => {
 
     useEffect(() => {
         const unsubscribe = onSnapshot(collection(db, 'sat_registrations'), (snapshot) => {
-            const data = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            }));
+            const data = snapshot.docs.map(doc => {
+                const docData = doc.data();
+                return {
+                    id: doc.id,
+                    ...docData,
+                    accommodations: decryptText(docData.accommodations || ''),
+                    accommodationNotes: decryptText(docData.accommodationNotes || '')
+                };
+            });
             setRegistrations(data);
             setLoading(false);
         }, (error) => {
@@ -59,7 +63,9 @@ const SATManager = () => {
                     id: doc.id,
                     ...data,
                     dob: decryptText(data.dob || ''),
-                    stateId: decryptText(data.stateId || '')
+                    stateId: decryptText(data.stateId || ''),
+                    accommodations: decryptText(data.accommodations || ''),
+                    accommodationNotes: decryptText(data.accommodationNotes || '')
                 };
             }));
         });
@@ -83,6 +89,7 @@ const SATManager = () => {
 
             await updateDoc(docRef, {
                 ...editData,
+                accommodations: encryptText(editData.accommodations || 'None'),
                 feeAmount: finalFee,
                 lastUpdated: serverTimestamp()
             });
@@ -100,6 +107,7 @@ const SATManager = () => {
             const docRef = doc(collection(db, 'sat_registrations'), manualData.email.toLowerCase().replace(/[.#$/[\]]/g, '_'));
             await setDoc(docRef, {
                 ...manualData,
+                accommodations: encryptText(manualData.accommodations || 'None'),
                 feeAmount: fee,
                 paymentRecd: 'No',
                 submittedToBO: false,
@@ -171,7 +179,9 @@ const SATManager = () => {
                     acc[data.email.toLowerCase()] = {
                         ...data,
                         dob: decryptText(data.dob || ''),
-                        stateId: decryptText(data.stateId || '')
+                        stateId: decryptText(data.stateId || ''),
+                        accommodations: decryptText(data.accommodations || ''),
+                        accommodationNotes: decryptText(data.accommodationNotes || '')
                     };
                 }
                 return acc;
@@ -396,7 +406,9 @@ const SATManager = () => {
             const master = masterStudents.find(m => m.email?.toLowerCase() === r.email?.toLowerCase()) ||
                 masterStudents.find(m => m.lastName?.toLowerCase() === r.lastName?.toLowerCase() &&
                     m.firstName?.toLowerCase() === r.firstName?.toLowerCase());
-            hasAccom = master?.accommodations && master.accommodations !== 'None';
+            const mAcc = master?.accommodations;
+            const rAcc = r.accommodations;
+            hasAccom = (mAcc && mAcc !== 'None' && mAcc.trim() !== '') || (rAcc && rAcc !== 'None' && rAcc.trim() !== '');
         }
         const matchesAccom = accommodationFilter === 'all' || hasAccom;
         const matchesStudentType = studentTypeFilter.length === 0 || studentTypeFilter.includes(r.studentType);
@@ -687,8 +699,14 @@ const SATManager = () => {
                                                 </td>
                                                 <td style={{ padding: '12px 16px' }}>
                                                     {(() => {
-                                                        const accom = master?.accommodations;
-                                                        return accom ? <span style={{ padding: '2px 6px', backgroundColor: 'rgba(0, 70, 139, 0.08)', color: 'var(--fa-blue)', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold' }}>{accom}</span> : <span style={{ color: '#ccc' }}>None</span>;
+                                                        const accom = (r.accommodations && r.accommodations !== 'None') ? r.accommodations : master?.accommodations;
+                                                        return (accom && accom !== 'None' && accom.trim() !== '') ? (
+                                                            <span style={{ padding: '2px 6px', backgroundColor: 'rgba(0, 70, 139, 0.08)', color: 'var(--fa-blue)', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold' }}>
+                                                                {accom}
+                                                            </span>
+                                                        ) : (
+                                                            <span style={{ color: '#ccc' }}>None</span>
+                                                        );
                                                     })()}
                                                 </td>
                                                 <td style={{ padding: '12px 16px' }}>
