@@ -190,28 +190,93 @@ const SATManager = () => {
 
             const exportData = registrations.map(reg => {
                 const master = masterList[reg.email?.toLowerCase()] || {};
-                let gender = 'A';
-                if (master.gender?.toUpperCase() === 'M' || master.gender?.toLowerCase() === 'male') gender = 'M';
-                else if (master.gender?.toUpperCase() === 'F' || master.gender?.toLowerCase() === 'female') gender = 'F';
+                
+                // Testing AI Code (Col A): Numeric up to 6 digits
+                const testingAI = String(master.testingAI || '200390').replace(/\D/g, '').slice(0, 6) || '200390';
+                
+                // Attending AI Code (Col B): Numeric up to 6 digits, optional
+                const attendingAI = master.attendingAI ? String(master.attendingAI).replace(/\D/g, '').slice(0, 6) : '';
 
-                let grade = reg.grade || master.grade || '';
-                if (grade.length === 1) grade = `0${grade}`;
-                else if (grade.length === 0) grade = '';
+                // First Name (Col C): Max 30 chars, allowed: a-z, A-Z, hyphen (-), space, apostrophe (')
+                const cleanFirst = (reg.firstName || master.firstName || '')
+                    .replace(/[^a-zA-Z\s'-]/g, '')
+                    .trim()
+                    .slice(0, 30);
+
+                // Middle Initial (Col D): 1 char, Alpha (A-Z)
+                const cleanMiddle = (master.middleName || '')
+                    .replace(/[^a-zA-Z]/g, '')
+                    .charAt(0)
+                    .toUpperCase();
+
+                // Last Name (Col E): Max 35 chars, allowed: a-z, A-Z, hyphen (-), space, apostrophe (')
+                // Strip common generational suffixes (Jr, Sr, II, III, IV)
+                const rawLast = (reg.lastName || master.lastName || '')
+                    .replace(/\b(jr\.?|sr\.?|ii|iii|iv|v)\b/gi, '')
+                    .replace(/[^a-zA-Z\s'-]/g, '')
+                    .replace(/\s+/g, ' ')
+                    .trim()
+                    .slice(0, 35);
+
+                // Date of Birth (Col F): MM/DD/YYYY
+                const dob = normalizeDOB(master.dob || '');
+
+                // Gender (Col G): F, M, or U (Not Specified)
+                let gender = 'U';
+                const g = (master.gender || '').trim().toUpperCase();
+                if (g === 'M' || g === 'MALE') gender = 'M';
+                else if (g === 'F' || g === 'FEMALE') gender = 'F';
+
+                // Grade (Col H): 6, 7, 8, 9, 10, 11, 12, N, 1C, 2C (no leading zero for single digits)
+                let rawGrade = String(reg.grade || master.grade || '').trim();
+                let grade = '';
+                if (['6', '7', '8', '9', '10', '11', '12', 'N', '1C', '2C'].includes(rawGrade.toUpperCase())) {
+                    grade = rawGrade.toUpperCase();
+                } else {
+                    const numGrade = parseInt(rawGrade.replace(/\D/g, ''), 10);
+                    if (!isNaN(numGrade) && numGrade >= 6 && numGrade <= 12) {
+                        grade = String(numGrade);
+                    } else if (rawGrade.toUpperCase().startsWith('N')) {
+                        grade = 'N';
+                    } else {
+                        grade = '11'; // Default sensible high school junior grade if missing
+                    }
+                }
+
+                // Test (Col I): PNM, P89, P10, SAT
+                let testCode = 'SAT';
+                const t = (reg.testType || '').toUpperCase();
+                if (t.includes('PSAT')) {
+                    if (grade === '10') testCode = 'P10';
+                    else if (grade === '8' || grade === '9') testCode = 'P89';
+                    else testCode = 'PNM';
+                } else if (t.includes('SAT')) {
+                    testCode = 'SAT';
+                }
+
+                // School Student ID (Col J): Max 30 alphanumeric, no spaces
+                const rawSchoolId = String(master.schoolId || master.userId || master.user_id || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 30);
+                const schoolStudentId = rawSchoolId || (reg.email ? reg.email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '').slice(0, 30) : '');
+
+                // District Student ID (Col K): Max 30 alphanumeric, no spaces, optional
+                const districtStudentId = '';
+
+                // State Student ID (Col L): Max 30 alphanumeric, no spaces, optional
+                const stateStudentId = String(master.stateId || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 30);
 
                 return {
-                    'Testing AI Code': master.testingAI || '200390',
-                    'Attending AI Code': master.attendingAI || '200390',
-                    'First Name': reg.firstName || '',
-                    'Middle Initial': master.middleName ? master.middleName.charAt(0) : '',
-                    'Last Name': reg.lastName || '',
-                    'Date of Birth': normalizeDOB(master.dob || ''),
+                    'Testing AI Code': testingAI,
+                    'Attending AI Code': attendingAI,
+                    'First Name': cleanFirst,
+                    'Middle Initial': cleanMiddle,
+                    'Last Name': rawLast,
+                    'Date of Birth': dob,
                     'Gender': gender,
                     'Grade': grade,
-                    'Test': reg.testType === 'SAT' ? 'SAT' : 'PNM',
-                    'School Student ID': master.schoolId || master.userId || master.user_id || '',
-                    'District Student ID': '',
-                    'State Student ID': master.stateId || '',
-                    'Fee Waiver': master.waiverEligible || reg.waiverEligible || 'No'
+                    'Test': testCode,
+                    'School Student ID': schoolStudentId,
+                    'District Student ID': districtStudentId,
+                    'State Student ID': stateStudentId
                 };
             });
 
@@ -220,7 +285,7 @@ const SATManager = () => {
             const link = document.createElement("a");
             const url = URL.createObjectURL(blob);
             link.setAttribute("href", url);
-            link.setAttribute("download", `SAT_Export_${new Date().toISOString().split('T')[0]}.csv`);
+            link.setAttribute("download", `CollegeBoard_Export_${new Date().toISOString().split('T')[0]}.csv`);
             link.style.visibility = 'hidden';
             document.body.appendChild(link);
             link.click();
