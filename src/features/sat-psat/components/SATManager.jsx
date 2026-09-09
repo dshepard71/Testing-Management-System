@@ -171,7 +171,7 @@ const SATManager = () => {
         );
     };
 
-    const exportToCollegeboard = async () => {
+    const exportToCollegeboard = async (targetTest = 'all') => {
         try {
             const masterSnap = await getDocs(collection(db, 'master_students'));
             const masterList = masterSnap.docs.reduce((acc, doc) => {
@@ -188,14 +188,37 @@ const SATManager = () => {
                 return acc;
             }, {});
 
-            const exportData = registrations.map(reg => {
+            // Filter registrations by target test if specified (SAT vs PSAT)
+            const filteredRegs = registrations.filter(reg => {
+                if (targetTest === 'SAT') return (reg.testType || '').toUpperCase().includes('SAT') && !(reg.testType || '').toUpperCase().includes('PSAT');
+                if (targetTest === 'PSAT') return (reg.testType || '').toUpperCase().includes('PSAT');
+                return true;
+            });
+
+            if (filteredRegs.length === 0) {
+                alert(`No registrations found for ${targetTest === 'all' ? 'export' : targetTest}.`);
+                return;
+            }
+
+            const exportData = filteredRegs.map(reg => {
                 const master = masterList[reg.email?.toLowerCase()] || {};
                 
-                // Testing AI Code (Col A): Numeric up to 6 digits
+                // Determine student type (homeschool check)
+                const studentType = String(reg.studentType || master.studentType || master.schoolProgram || '').toLowerCase();
+                const isHomeschool = studentType.includes('homeschool');
+
+                // Testing AI Code (Col A): Fryeburg Academy is 200390
                 const testingAI = String(master.testingAI || '200390').replace(/\D/g, '').slice(0, 6) || '200390';
                 
-                // Attending AI Code (Col B): Numeric up to 6 digits, optional
-                const attendingAI = master.attendingAI ? String(master.attendingAI).replace(/\D/g, '').slice(0, 6) : '';
+                // Attending AI Code (Col B):
+                // For homeschool students in Maine, CollegeBoard standard homeschool code is 970000.
+                // For FA students attending FA, leave blank per CollegeBoard instructions.
+                let attendingAI = '';
+                if (isHomeschool) {
+                    attendingAI = master.attendingAI ? String(master.attendingAI).replace(/\D/g, '').slice(0, 6) : '970000';
+                } else if (master.attendingAI && String(master.attendingAI).replace(/\D/g, '') !== testingAI) {
+                    attendingAI = String(master.attendingAI).replace(/\D/g, '').slice(0, 6);
+                }
 
                 // First Name (Col C): Max 30 chars, allowed: a-z, A-Z, hyphen (-), space, apostrophe (')
                 const cleanFirst = (reg.firstName || master.firstName || '')
@@ -284,8 +307,11 @@ const SATManager = () => {
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
             const link = document.createElement("a");
             const url = URL.createObjectURL(blob);
+            const filename = targetTest === 'all'
+                ? `CollegeBoard_Export_${new Date().toISOString().split('T')[0]}.csv`
+                : `CollegeBoard_${targetTest}_Export_${new Date().toISOString().split('T')[0]}.csv`;
             link.setAttribute("href", url);
-            link.setAttribute("download", `CollegeBoard_Export_${new Date().toISOString().split('T')[0]}.csv`);
+            link.setAttribute("download", filename);
             link.style.visibility = 'hidden';
             document.body.appendChild(link);
             link.click();
@@ -535,10 +561,18 @@ const SATManager = () => {
                         Bulk Paste Import
                     </button>
                     <button
-                        onClick={exportToCollegeboard}
-                        style={{ padding: '8px 16px', backgroundColor: 'white', color: 'var(--fa-blue)', border: '1px solid var(--fa-blue)', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}
+                        onClick={() => exportToCollegeboard('SAT')}
+                        style={{ padding: '8px 14px', backgroundColor: 'white', color: 'var(--fa-blue)', border: '1px solid var(--fa-blue)', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}
+                        title="Export only SAT registrations for CollegeBoard SSOR"
                     >
-                        Export Collegeboard CSV
+                        Export SAT CSV
+                    </button>
+                    <button
+                        onClick={() => exportToCollegeboard('PSAT')}
+                        style={{ padding: '8px 14px', backgroundColor: 'white', color: 'var(--fa-blue)', border: '1px solid var(--fa-blue)', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}
+                        title="Export only PSAT registrations for CollegeBoard SSOR"
+                    >
+                        Export PSAT CSV
                     </button>
                     <button
                         onClick={() => setShowDepositModal(true)}
