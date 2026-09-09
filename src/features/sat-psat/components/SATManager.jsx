@@ -278,8 +278,14 @@ const SATManager = () => {
                 }
 
                 // School Student ID (Col J): Max 30 alphanumeric, no spaces
-                const rawSchoolId = String(master.schoolId || master.userId || master.user_id || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 30);
-                const schoolStudentId = rawSchoolId || (reg.email ? reg.email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '').slice(0, 30) : '');
+                let schoolStudentId = '';
+                if (isHomeschool) {
+                    const cleanLastLower = (reg.lastName || master.lastName || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+                    schoolStudentId = `970000${cleanLastLower}`.slice(0, 30);
+                } else {
+                    const rawSchoolId = String(master.schoolId || master.userId || master.user_id || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 30);
+                    schoolStudentId = rawSchoolId || (reg.email ? reg.email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '').slice(0, 30) : '');
+                }
 
                 // District Student ID (Col K): Max 30 alphanumeric, no spaces, optional
                 const districtStudentId = '';
