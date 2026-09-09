@@ -211,13 +211,12 @@ const SATManager = () => {
                 const testingAI = String(master.testingAI || '200390').replace(/\D/g, '').slice(0, 6) || '200390';
                 
                 // Attending AI Code (Col B):
-                // For homeschool students in Maine, CollegeBoard standard homeschool code is 970000.
-                // For FA students attending FA, leave blank per CollegeBoard instructions.
-                let attendingAI = '';
+                // 970000 if homeschooled, otherwise 200390 for regular students
+                let attendingAI = '200390';
                 if (isHomeschool) {
                     attendingAI = master.attendingAI ? String(master.attendingAI).replace(/\D/g, '').slice(0, 6) : '970000';
-                } else if (master.attendingAI && String(master.attendingAI).replace(/\D/g, '') !== testingAI) {
-                    attendingAI = String(master.attendingAI).replace(/\D/g, '').slice(0, 6);
+                } else if (master.attendingAI) {
+                    attendingAI = String(master.attendingAI).replace(/\D/g, '').slice(0, 6) || '200390';
                 }
 
                 // First Name (Col C): Max 30 chars, allowed: a-z, A-Z, hyphen (-), space, apostrophe (')
