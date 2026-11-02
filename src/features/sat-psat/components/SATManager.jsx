@@ -29,7 +29,10 @@ const SATManager = () => {
     const [bulkText, setBulkText] = useState('');
     const [paymentFilter, setPaymentFilter] = useState('all');     // 'all', 'paid', 'pending'
     const [billedFilter, setBilledFilter] = useState('all');       // 'all', 'billed', 'not_billed'
+    const [tenderFilter, setTenderFilter] = useState('all');       // 'all', 'Cash', 'Check', 'CC', 'Account'
     const [accommodationFilter, setAccommodationFilter] = useState('all'); // 'all', 'has'
+    const [examFilter, setExamFilter] = useState('all');           // 'all', 'SAT', 'PSAT'
+    const [roomFilter, setRoomFilter] = useState('all');           // 'all', 'standard', 'extended', 'small_group'
     const [studentTypeFilter, setStudentTypeFilter] = useState([]); // [] = all, or array of selected types
     const [manualData, setManualData] = useState({
         firstName: '', lastName: '', email: '', testType: 'SAT', studentType: 'boarding', counselor: '', grade: '11', accommodations: 'None', waiverEligible: 'No'
@@ -157,6 +160,56 @@ const SATManager = () => {
         }
     };
 
+    const handleBulkMarkSubmitted = async () => {
+        if (selectedIds.length === 0) return;
+        if (!window.confirm(`Mark ${selectedIds.length} selected student(s) as Submitted to the Business Office?`)) return;
+
+        setLoading(true);
+        try {
+            const batch = writeBatch(db);
+            selectedIds.forEach(id => {
+                batch.update(doc(db, 'sat_registrations', id), {
+                    submittedToBO: true,
+                    lastUpdated: serverTimestamp()
+                });
+            });
+            await batch.commit();
+            setSelectedIds([]);
+            alert(`✅ Marked ${selectedIds.length} registrations as Submitted to Business Office.`);
+        } catch (error) {
+            console.error("Error bulk updating submittedToBO:", error);
+            alert("Failed to update status.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleBulkBillToAccount = async () => {
+        if (selectedIds.length === 0) return;
+        if (!window.confirm(`Mark ${selectedIds.length} selected student(s) as 'Billed to Account' (Payment: Yes, Tender: Account)?`)) return;
+
+        setLoading(true);
+        try {
+            const batch = writeBatch(db);
+            selectedIds.forEach(id => {
+                batch.update(doc(db, 'sat_registrations', id), {
+                    paymentRecd: 'Yes',
+                    paymentTender: 'Account',
+                    billed: true,
+                    lastUpdated: serverTimestamp()
+                });
+            });
+            await batch.commit();
+            setSelectedIds([]);
+            alert(`✅ Successfully marked ${selectedIds.length} student(s) as Billed to Account!`);
+        } catch (error) {
+            console.error("Error bulk billing to account:", error);
+            alert("Failed to update billing status.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const toggleSelectAll = () => {
         if (selectedIds.length === filtered.length) {
             setSelectedIds([]);
@@ -172,6 +225,11 @@ const SATManager = () => {
     };
 
     const exportToCollegeboard = async (targetTest = 'all') => {
+        let isFall = false;
+        if (targetTest === 'PSAT' || targetTest === 'all') {
+            isFall = window.confirm("Is this export for the FALL testing cycle?\n\n- Click OK for FALL (10th/11th graders are marked as PNM)\n- Click Cancel for SPRING (10th graders are marked as P10)");
+        }
+
         try {
             const masterSnap = await getDocs(collection(db, 'master_students'));
             const masterList = masterSnap.docs.reduce((acc, doc) => {
@@ -269,9 +327,14 @@ const SATManager = () => {
                 let testCode = 'SAT';
                 const t = (reg.testType || '').toUpperCase();
                 if (t.includes('PSAT')) {
-                    if (grade === '10') testCode = 'P10';
-                    else if (grade === '8' || grade === '9') testCode = 'P89';
-                    else testCode = 'PNM';
+                    if (isFall) {
+                        if (grade === '8' || grade === '9') testCode = 'P89';
+                        else testCode = 'PNM';
+                    } else {
+                        if (grade === '10') testCode = 'P10';
+                        else if (grade === '8' || grade === '9') testCode = 'P89';
+                        else testCode = 'PNM';
+                    }
                 } else if (t.includes('SAT')) {
                     testCode = 'SAT';
                 }
@@ -490,6 +553,41 @@ const SATManager = () => {
         }
     };
 
+    // Helper to categorize student testing room needs based on FA rules:
+    // If student has both Extended Time and Small Group -> Extended Time room
+    // If student has Extended Time -> Extended Time room
+    // If student has Small Group only -> Small Group room
+    // If None / blank -> Standard room
+    const getStudentRoomCategory = (r) => {
+        const master = masterStudents.find(m => m.email?.toLowerCase() === r.email?.toLowerCase()) ||
+            masterStudents.find(m => m.lastName?.toLowerCase() === r.lastName?.toLowerCase() &&
+                m.firstName?.toLowerCase() === r.firstName?.toLowerCase());
+        const rawAcc = `${r.accommodations || ''} ${master?.accommodations || ''} ${r.accommodationNotes || ''} ${master?.accommodationNotes || ''}`.toLowerCase();
+        
+        const hasExtended = rawAcc.includes('extended') || rawAcc.includes('extra time') || rawAcc.includes('time and a half') || rawAcc.includes('double time');
+        const hasSmallGroup = rawAcc.includes('small group') || rawAcc.includes('small-group');
+
+        if (hasExtended) return 'extended'; // If both or extended -> goes to Extended Time
+        if (hasSmallGroup) return 'small_group';
+        if (rawAcc.trim() && !rawAcc.includes('none')) return 'special'; // Other specific accom
+        return 'standard';
+    };
+
+    // Calculate room & exam breakdown metrics across all registrations
+    const satRegistrations = registrations.filter(r => (r.testType || '').toUpperCase().includes('SAT') && !(r.testType || '').toUpperCase().includes('PSAT'));
+    const psatRegistrations = registrations.filter(r => (r.testType || '').toUpperCase().includes('PSAT'));
+
+    // Count rooms according to the active exam filter (or all)
+    const baseRoomList = examFilter === 'all' 
+        ? registrations 
+        : examFilter === 'SAT' ? satRegistrations : psatRegistrations;
+
+    const roomCounts = baseRoomList.reduce((acc, r) => {
+        const cat = getStudentRoomCategory(r);
+        acc[cat] = (acc[cat] || 0) + 1;
+        return acc;
+    }, { standard: 0, extended: 0, small_group: 0, special: 0 });
+
     const filtered = registrations.filter(r => {
         const matchesSearch = `${r.firstName} ${r.lastName}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
             r.email?.toLowerCase().includes(searchTerm.toLowerCase());
@@ -497,6 +595,15 @@ const SATManager = () => {
         const matchesPayment = paymentFilter === 'all' ||
             (paymentFilter === 'paid' && r.paymentRecd === 'Yes') ||
             (paymentFilter === 'pending' && r.paymentRecd !== 'Yes');
+
+        const isSat = (r.testType || '').toUpperCase().includes('SAT') && !(r.testType || '').toUpperCase().includes('PSAT');
+        const isPsat = (r.testType || '').toUpperCase().includes('PSAT');
+        const matchesExam = examFilter === 'all' ||
+            (examFilter === 'SAT' && isSat) ||
+            (examFilter === 'PSAT' && isPsat);
+
+        const roomCat = getStudentRoomCategory(r);
+        const matchesRoom = roomFilter === 'all' || roomFilter === roomCat;
 
         let hasAccom = false;
         if (accommodationFilter === 'has') {
@@ -508,12 +615,25 @@ const SATManager = () => {
             hasAccom = (mAcc && mAcc !== 'None' && mAcc.trim() !== '') || (rAcc && rAcc !== 'None' && rAcc.trim() !== '');
         }
         const matchesAccom = accommodationFilter === 'all' || hasAccom;
-        const matchesStudentType = studentTypeFilter.length === 0 || studentTypeFilter.includes(r.studentType);
+
+        // Smart case-insensitive matching for studentType (Boarding vs boarding, Day vs day, etc.)
+        // Also fallback to master student schoolProgram if r.studentType is missing or unspecified
+        const master = masterStudents.find(m => m.email?.toLowerCase() === r.email?.toLowerCase()) ||
+            masterStudents.find(m => m.lastName?.toLowerCase() === r.lastName?.toLowerCase() &&
+                m.firstName?.toLowerCase() === r.firstName?.toLowerCase());
+        const resolvedType = (r.studentType || master?.schoolProgram || master?.studentType || '').toLowerCase().trim();
+
+        const matchesStudentType = studentTypeFilter.length === 0 || studentTypeFilter.some(selected => {
+            const filterKey = selected.toLowerCase().trim();
+            return resolvedType.includes(filterKey) || filterKey.includes(resolvedType);
+        });
+
         const matchesBilled = billedFilter === 'all' ||
             (billedFilter === 'billed' && r.billed) ||
             (billedFilter === 'not_billed' && !r.billed);
+        const matchesTender = tenderFilter === 'all' || r.paymentTender === tenderFilter;
 
-        return matchesSearch && matchesPayment && matchesAccom && matchesStudentType && matchesBilled;
+        return matchesSearch && matchesPayment && matchesTender && matchesExam && matchesRoom && matchesAccom && matchesStudentType && matchesBilled;
     }).sort((a, b) => (a.lastName || '').localeCompare(b.lastName || ''));
 
     const paidCount = registrations.filter(r => r.paymentRecd === 'Yes').length;
@@ -528,6 +648,85 @@ const SATManager = () => {
             alert('Failed to copy emails. Please try again.');
         });
     };
+
+    // Export Account Billing CSV specifically for the Business Office
+    // If includeAll is false, exports only unsubmitted account students, then prompts to mark them as submitted.
+    const exportAccountBillingCSV = async (includeAll = false) => {
+        const targetStudents = includeAll 
+            ? registrations.filter(r => r.paymentTender === 'Account')
+            : registrations.filter(r => r.paymentTender === 'Account' && !r.submittedToBO);
+
+        if (targetStudents.length === 0) {
+            if (!includeAll && registrations.some(r => r.paymentTender === 'Account')) {
+                if (window.confirm("No unsubmitted Account students in the queue. Would you like to export all Account students (including already submitted)?")) {
+                    exportAccountBillingCSV(true);
+                }
+                return;
+            }
+            alert("No students currently marked for 'Bill to Account'.");
+            return;
+        }
+
+        const rows = [
+            ["Last Name", "First Name", "Student ID", "Email", "Grade", "Student Type", "Exam", "Fee Amount", "Payment Status", "Billed to Acct", "BO Notes"]
+        ];
+
+        targetStudents.forEach(r => {
+            const master = masterStudents.find(m => m.email?.toLowerCase() === r.email?.toLowerCase()) || {};
+            const fee = r.waiverEligible === 'Yes' ? 0 : (r.feeAmount !== undefined ? r.feeAmount : (r.testType === 'SAT' ? 60 : 18));
+            const studentId = master.schoolId || master.userId || master.user_id || (r.email ? r.email.split('@')[0] : '');
+            rows.push([
+                `"${r.lastName || master.lastName || ''}"`,
+                `"${r.firstName || master.firstName || ''}"`,
+                `"${studentId}"`,
+                `"${r.email || ''}"`,
+                r.grade || master.grade || '',
+                r.studentType || master.schoolProgram || 'Day',
+                r.testType || 'SAT',
+                fee,
+                'Billed to Account',
+                r.billed ? 'Yes' : 'No',
+                `"${r.boNotes || ''}"`
+            ]);
+        });
+
+        const csvContent = "data:text/csv;charset=utf-8," + rows.map(e => e.join(",")).join("\n");
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        const suffix = includeAll ? 'All' : 'Unsubmitted';
+        link.setAttribute("download", `Account_Billing_${suffix}_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        // If exporting unsubmitted, ask if they'd like to mark them as submitted to BO
+        if (!includeAll) {
+            const shouldMark = window.confirm(
+                `Exported ${targetStudents.length} student(s).\n\nWould you like to mark these ${targetStudents.length} student(s) as "Submitted to Business Office" now?`
+            );
+            if (shouldMark) {
+                try {
+                    const batch = writeBatch(db);
+                    targetStudents.forEach(r => {
+                        const docRef = doc(db, 'sat_registrations', r.id);
+                        batch.update(docRef, {
+                            submittedToBO: true,
+                            lastUpdated: serverTimestamp()
+                        });
+                    });
+                    await batch.commit();
+                    alert(`✅ Successfully marked ${targetStudents.length} student(s) as Submitted to BO.`);
+                } catch (error) {
+                    console.error("Error updating account students as submitted:", error);
+                    alert("Export succeeded, but failed to automatically update status.");
+                }
+            }
+        }
+    };
+
+    const accountCount = registrations.filter(r => r.paymentTender === 'Account').length;
+    const unsubmittedAccountCount = registrations.filter(r => r.paymentTender === 'Account' && !r.submittedToBO).length;
 
     const depositReady = registrations.filter(r =>
         r.paymentRecd === 'Yes' &&
@@ -546,12 +745,21 @@ const SATManager = () => {
                 </div>
                 <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
                     {selectedIds.length > 0 && (
-                        <button
-                            onClick={handleBulkDelete}
-                            style={{ padding: '8px 16px', backgroundColor: 'var(--fa-red)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}
-                        >
-                            Delete Selected ({selectedIds.length})
-                        </button>
+                        <>
+                            <button
+                                onClick={handleBulkMarkSubmitted}
+                                style={{ padding: '8px 16px', backgroundColor: '#0d6efd', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}
+                                title="Mark selected students as Submitted to Business Office"
+                            >
+                                ✓ Mark Submitted to BO ({selectedIds.length})
+                            </button>
+                            <button
+                                onClick={handleBulkDelete}
+                                style={{ padding: '8px 16px', backgroundColor: 'var(--fa-red)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}
+                            >
+                                Delete Selected ({selectedIds.length})
+                            </button>
+                        </>
                     )}
                     <button
                         onClick={() => setShowManualModal(true)}
@@ -580,6 +788,34 @@ const SATManager = () => {
                         Export PSAT CSV
                     </button>
                     <button
+                        onClick={() => exportAccountBillingCSV(false)}
+                        style={{
+                            padding: '8px 14px',
+                            backgroundColor: 'white',
+                            color: '#0d6efd',
+                            border: '1px solid #0d6efd',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            fontWeight: 'bold',
+                            fontSize: '13px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '5px'
+                        }}
+                        title="Export CSV of unsubmitted 'Bill to Account' students for Business Office ledger"
+                    >
+                        <span>🧾 Export Account Billing</span>
+                        {unsubmittedAccountCount > 0 ? (
+                            <span style={{ backgroundColor: '#0d6efd', color: 'white', borderRadius: '10px', padding: '1px 6px', fontSize: '11px' }} title={`${unsubmittedAccountCount} unsubmitted to BO`}>
+                                {unsubmittedAccountCount}
+                            </span>
+                        ) : accountCount > 0 ? (
+                            <span style={{ backgroundColor: '#6c757d', color: 'white', borderRadius: '10px', padding: '1px 6px', fontSize: '11px' }} title="All account students submitted to BO">
+                                0 / {accountCount}
+                            </span>
+                        ) : null}
+                    </button>
+                    <button
                         onClick={() => setShowDepositModal(true)}
                         disabled={depositReady.length === 0}
                         style={{
@@ -605,34 +841,82 @@ const SATManager = () => {
             </div>
 
             <div className="glass-panel" style={{
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                marginBottom: '20px', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--glass-border)', background: 'rgba(255,255,255,0.45)'
+                display: 'flex', flexDirection: 'column', gap: '12px',
+                marginBottom: '20px', padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--glass-border)', background: 'rgba(255,255,255,0.55)'
             }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                    <div style={{ fontWeight: '600', fontSize: '13px', color: 'var(--fa-dark-blue)' }}>
-                        <span>{registrations.length} Total</span>
-                        <span style={{ color: 'var(--fa-warm-gray)', margin: '0 8px' }}>|</span>
-                        <span style={{ color: '#1e8e3e' }}>{paidCount} Paid</span>
-                        <span style={{ color: 'var(--fa-warm-gray)', margin: '0 8px' }}>|</span>
-                        <span style={{ color: 'var(--fa-red)' }}>{pendingCount} Pending</span>
+                {/* Row 1: High Level Totals and Filters */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                        <div style={{ fontWeight: '600', fontSize: '13px', color: 'var(--fa-dark-blue)' }}>
+                            <span>{registrations.length} Total</span>
+                            <span style={{ color: 'var(--fa-warm-gray)', margin: '0 6px' }}>|</span>
+                            <span style={{ color: '#1e8e3e' }}>{paidCount} Paid</span>
+                            <span style={{ color: 'var(--fa-warm-gray)', margin: '0 6px' }}>|</span>
+                            <span style={{ color: 'var(--fa-red)' }}>{pendingCount} Pending</span>
+                            {accountCount > 0 && (
+                                <>
+                                    <span style={{ color: 'var(--fa-warm-gray)', margin: '0 6px' }}>|</span>
+                                    <span style={{ color: '#0d6efd' }}>{accountCount} Account Billed</span>
+                                </>
+                            )}
+                        </div>
                     </div>
-                </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                        <span style={{ fontSize: '12px', color: 'var(--fa-warm-gray)', fontWeight: 'bold' }}>Payment:</span>
-                        {['all', 'paid', 'pending'].map(opt => (
-                            <button key={opt} onClick={() => setPaymentFilter(opt)}
-                                style={{
-                                    padding: '4px 10px', fontSize: '11px', borderRadius: '6px',
-                                    border: paymentFilter === opt ? '2px solid var(--fa-blue)' : '1px solid #ccc',
-                                    backgroundColor: paymentFilter === opt ? 'rgba(0, 70, 139, 0.08)' : '#fff',
-                                    color: paymentFilter === opt ? 'var(--fa-blue)' : '#666',
-                                    cursor: 'pointer', textTransform: 'capitalize', fontWeight: '600'
-                                }}>
-                                {opt}
-                            </button>
-                        ))}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                        {/* Exam Filter: All | SAT | PSAT */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                            <span style={{ fontSize: '12px', color: 'var(--fa-dark-blue)', fontWeight: 'bold' }}>Exam:</span>
+                            {[
+                                { id: 'all', label: `All (${registrations.length})` },
+                                { id: 'SAT', label: `SAT (${satRegistrations.length})` },
+                                { id: 'PSAT', label: `PSAT (${psatRegistrations.length})` }
+                            ].map(opt => (
+                                <button key={opt.id} onClick={() => setExamFilter(opt.id)}
+                                    style={{
+                                        padding: '4px 10px', fontSize: '11px', borderRadius: '6px',
+                                        border: examFilter === opt.id ? '2px solid var(--fa-blue)' : '1px solid #ccc',
+                                        backgroundColor: examFilter === opt.id ? 'var(--fa-blue)' : '#fff',
+                                        color: examFilter === opt.id ? '#fff' : '#444',
+                                        cursor: 'pointer', fontWeight: 'bold'
+                                    }}>
+                                    {opt.label}
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* Payment Filter */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                            <span style={{ fontSize: '12px', color: 'var(--fa-warm-gray)', fontWeight: 'bold' }}>Payment:</span>
+                            {['all', 'paid', 'pending'].map(opt => (
+                                <button key={opt} onClick={() => setPaymentFilter(opt)}
+                                    style={{
+                                        padding: '4px 10px', fontSize: '11px', borderRadius: '6px',
+                                        border: paymentFilter === opt ? '2px solid var(--fa-blue)' : '1px solid #ccc',
+                                        backgroundColor: paymentFilter === opt ? 'rgba(0, 70, 139, 0.08)' : '#fff',
+                                        color: paymentFilter === opt ? 'var(--fa-blue)' : '#666',
+                                        cursor: 'pointer', textTransform: 'capitalize', fontWeight: '600'
+                                    }}>
+                                    {opt}
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* Tender Filter */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                            <span style={{ fontSize: '12px', color: 'var(--fa-warm-gray)', fontWeight: 'bold' }}>Tender:</span>
+                            {['all', 'Cash', 'Check', 'CC', 'Account'].map(opt => (
+                                <button key={opt} onClick={() => setTenderFilter(opt)}
+                                    style={{
+                                        padding: '4px 8px', fontSize: '11px', borderRadius: '6px',
+                                        border: tenderFilter === opt ? '2px solid var(--fa-blue)' : '1px solid #ccc',
+                                        backgroundColor: tenderFilter === opt ? 'rgba(0, 70, 139, 0.08)' : '#fff',
+                                        color: tenderFilter === opt ? 'var(--fa-blue)' : '#666',
+                                        cursor: 'pointer', fontWeight: '600'
+                                    }}>
+                                    {opt === 'all' ? 'All' : opt}
+                                </button>
+                            ))}
+                        </div>
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
@@ -692,7 +976,168 @@ const SATManager = () => {
                         📋 Copy Emails ({filtered.length})
                     </button>
                 </div>
+
+                {/* Row 2: Room & Proctoring Breakdown & Quick Filter */}
+                <div style={{
+                    paddingTop: '10px',
+                    borderTop: '1px dashed var(--glass-border)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '10px',
+                    fontSize: '12px'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 'bold', color: 'var(--fa-dark-blue)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            🏫 Room Planning {examFilter !== 'all' ? `(${examFilter})` : ''}:
+                        </span>
+                        
+                        {/* Standard Room Button */}
+                        <button
+                            onClick={() => setRoomFilter(roomFilter === 'standard' ? 'all' : 'standard')}
+                            style={{
+                                border: roomFilter === 'standard' ? '2px solid #1a73e8' : '1px solid #d1d5db',
+                                backgroundColor: roomFilter === 'standard' ? '#e8f0fe' : '#fff',
+                                color: '#1a73e8',
+                                padding: '3px 10px',
+                                borderRadius: '14px',
+                                cursor: 'pointer',
+                                fontWeight: '600',
+                                fontSize: '11px'
+                            }}
+                            title="Students testing without accommodations"
+                        >
+                            Standard Room: <strong>{roomCounts.standard}</strong>
+                        </button>
+
+                        {/* Extended Time Room Button (includes both Ext Time + Small Group) */}
+                        <button
+                            onClick={() => setRoomFilter(roomFilter === 'extended' ? 'all' : 'extended')}
+                            style={{
+                                border: roomFilter === 'extended' ? '2px solid #b06000' : '1px solid #fed7aa',
+                                backgroundColor: roomFilter === 'extended' ? '#ffedd5' : '#fff7ed',
+                                color: '#b06000',
+                                padding: '3px 10px',
+                                borderRadius: '14px',
+                                cursor: 'pointer',
+                                fontWeight: '600',
+                                fontSize: '11px'
+                            }}
+                            title="Extended Time (or both Extended Time + Small Group)"
+                        >
+                            ⏱️ Extended Time: <strong>{roomCounts.extended}</strong>
+                        </button>
+
+                        {/* Small Group Only Room Button */}
+                        <button
+                            onClick={() => setRoomFilter(roomFilter === 'small_group' ? 'all' : 'small_group')}
+                            style={{
+                                border: roomFilter === 'small_group' ? '2px solid #6b21a8' : '1px solid #e9d5ff',
+                                backgroundColor: roomFilter === 'small_group' ? '#f3e8ff' : '#faf5ff',
+                                color: '#6b21a8',
+                                padding: '3px 10px',
+                                borderRadius: '14px',
+                                cursor: 'pointer',
+                                fontWeight: '600',
+                                fontSize: '11px'
+                            }}
+                            title="Small Group testing only (no extended time)"
+                        >
+                            👥 Small Group Only: <strong>{roomCounts.small_group}</strong>
+                        </button>
+
+                        {roomCounts.special > 0 && (
+                            <button
+                                onClick={() => setRoomFilter(roomFilter === 'special' ? 'all' : 'special')}
+                                style={{
+                                    border: roomFilter === 'special' ? '2px solid #4b5563' : '1px solid #e5e7eb',
+                                    backgroundColor: roomFilter === 'special' ? '#e5e7eb' : '#f9fafb',
+                                    color: '#374151',
+                                    padding: '3px 10px',
+                                    borderRadius: '14px',
+                                    cursor: 'pointer',
+                                    fontWeight: '600',
+                                    fontSize: '11px'
+                                }}
+                            >
+                                Other Accommodations: <strong>{roomCounts.special}</strong>
+                            </button>
+                        )}
+
+                        {roomFilter !== 'all' && (
+                            <button
+                                onClick={() => setRoomFilter('all')}
+                                style={{ border: 'none', background: 'none', color: 'var(--fa-red)', cursor: 'pointer', fontWeight: 'bold', fontSize: '11px', textDecoration: 'underline' }}
+                            >
+                                Clear Room Filter
+                            </button>
+                        )}
+                    </div>
+
+                    <div style={{ color: 'var(--fa-warm-gray)', fontSize: '11px', fontStyle: 'italic' }}>
+                        *Rule: Students with both Extended Time & Small Group are assigned to Extended Time rooms.
+                    </div>
+                </div>
             </div>
+
+            {/* Floating/Contextual Bulk Action Bar */}
+            {selectedIds.length > 0 && (
+                <div className="glass-panel" style={{
+                    marginBottom: '16px', padding: '12px 20px', borderRadius: '10px',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px',
+                    backgroundColor: 'rgba(0, 70, 139, 0.08)', border: '1.5px solid var(--fa-blue)'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <span style={{ fontWeight: 'bold', color: 'var(--fa-dark-blue)', fontSize: '13px' }}>
+                            ✓ {selectedIds.length} student{selectedIds.length > 1 ? 's' : ''} selected
+                        </span>
+                        <button
+                            onClick={() => setSelectedIds([])}
+                            style={{ background: 'none', border: 'none', color: 'var(--fa-warm-gray)', cursor: 'pointer', fontSize: '12px', textDecoration: 'underline' }}
+                        >
+                            Deselect All
+                        </button>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                        <button
+                            onClick={handleBulkBillToAccount}
+                            style={{
+                                padding: '6px 14px', backgroundColor: 'var(--fa-blue)', color: 'white',
+                                border: 'none', borderRadius: '6px', fontWeight: 'bold', fontSize: '12px',
+                                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
+                                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                            }}
+                            title="Set Payment Received = Yes, Payment Tender = Account"
+                        >
+                            ⚡ Bulk Bill to Account
+                        </button>
+
+                        <button
+                            onClick={handleBulkMarkSubmitted}
+                            style={{
+                                padding: '6px 14px', backgroundColor: '#e8f0fe', color: '#1a73e8',
+                                border: '1px solid #1a73e8', borderRadius: '6px', fontWeight: 'bold', fontSize: '12px',
+                                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                            }}
+                        >
+                            📤 Mark Submitted to BO
+                        </button>
+
+                        <button
+                            onClick={handleBulkDelete}
+                            style={{
+                                padding: '6px 12px', backgroundColor: 'transparent', color: 'var(--fa-red)',
+                                border: '1px solid var(--fa-red)', borderRadius: '6px', fontWeight: 'bold', fontSize: '12px',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            🗑️ Delete ({selectedIds.length})
+                        </button>
+                    </div>
+                </div>
+            )}
 
             <div className="glass-panel" style={{ padding: 0, borderRadius: '12px', border: '1px solid var(--glass-border)', overflow: 'hidden', background: 'rgba(255, 255, 255, 0.45)' }}>
                 <div style={{ overflowX: 'auto' }}>
@@ -730,7 +1175,14 @@ const SATManager = () => {
                                             <>
                                                 <td style={{ padding: '12px 16px' }}>
                                                     <div style={{ fontWeight: '600' }}>{r.lastName}, {r.firstName}</div>
-                                                    <div style={{ fontSize: '10px', color: 'var(--fa-warm-gray)' }}>{r.email}</div>
+                                                    <input 
+                                                        type="email"
+                                                        value={editData.email || ''} 
+                                                        onChange={e => setEditData({ ...editData, email: e.target.value.trim().toLowerCase() })}
+                                                        placeholder="student@fryeburgacademy.org"
+                                                        title="Student Email Address"
+                                                        style={{ fontSize: '11px', marginTop: '4px', padding: '3px 6px', borderRadius: '4px', border: '1px solid var(--fa-blue)', width: '100%', boxSizing: 'border-box' }}
+                                                    />
                                                 </td>
                                                 <td style={{ padding: '12px 16px' }}>
                                                     {r.testType}<br />
@@ -864,6 +1316,192 @@ const SATManager = () => {
                     </table>
                 </div>
             </div>
+
+            {showDepositModal && (
+                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, backdropFilter: 'blur(3px)' }}>
+                    <div className="glass-panel" style={{ backgroundColor: 'white', padding: '32px', borderRadius: '12px', width: '90%', maxWidth: '800px', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                            <h3 style={{ margin: 0, color: 'var(--fa-dark-blue)' }}>Printable Deposit Sheet</h3>
+                            <button onClick={() => setShowDepositModal(false)} style={{ border: 'none', background: 'none', fontSize: '20px', cursor: 'pointer', color: '#888' }}>&times;</button>
+                        </div>
+                        
+                        <div style={{ flex: 1, overflowY: 'auto', border: '1px solid #ccc', padding: '40px', marginBottom: '20px', backgroundColor: '#fff', boxShadow: '0 0 10px rgba(0,0,0,0.1)' }}>
+                            <div id="printable-deposit-sheet" style={{ color: 'black', fontFamily: 'sans-serif' }}>
+                                <h2 style={{ textAlign: 'center', margin: '0 0 5px 0' }}>Business Office Deposit Sheet</h2>
+                                <p style={{ textAlign: 'center', margin: '0 0 30px 0', color: '#555' }}>Testing Management System</p>
+
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px', fontSize: '14px' }}>
+                                    <div>
+                                        <div style={{ marginBottom: '4px' }}><strong>Date:</strong> {new Date().toLocaleDateString()}</div>
+                                        <div><strong>Test(s):</strong> {[...new Set(depositReady.map(r => r.testType))].filter(Boolean).join(', ') || 'N/A'}</div>
+                                    </div>
+                                    <div style={{ textAlign: 'right' }}>
+                                        <div style={{ marginBottom: '4px' }}><strong>Cash Total:</strong> ${depositReady.filter(r => r.paymentTender === 'Cash').reduce((sum, r) => sum + (Number(r.paymentAmount) || 0), 0).toFixed(2)}</div>
+                                        <div style={{ marginBottom: '4px' }}><strong>Check Total:</strong> ${depositReady.filter(r => r.paymentTender === 'Check').reduce((sum, r) => sum + (Number(r.paymentAmount) || 0), 0).toFixed(2)}</div>
+                                        <div style={{ marginTop: '8px', borderTop: '1px solid black', paddingTop: '8px' }}>
+                                            <strong>Overall Total:</strong> <span style={{ fontSize: '18px', fontWeight: 'bold' }}>${depositReady.reduce((sum, r) => sum + (Number(r.paymentAmount) || 0), 0).toFixed(2)}</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {(() => {
+                                    const cashList = depositReady.filter(r => r.paymentTender === 'Cash');
+                                    const checkList = depositReady.filter(r => r.paymentTender === 'Check');
+                                    const otherList = depositReady.filter(r => r.paymentTender !== 'Cash' && r.paymentTender !== 'Check');
+
+                                    const cashSubtotal = cashList.reduce((sum, r) => sum + (Number(r.paymentAmount) || 0), 0);
+                                    const checkSubtotal = checkList.reduce((sum, r) => sum + (Number(r.paymentAmount) || 0), 0);
+                                    const otherSubtotal = otherList.reduce((sum, r) => sum + (Number(r.paymentAmount) || 0), 0);
+
+                                    return (
+                                        <>
+                                            {/* CASH TABLE */}
+                                            <div style={{ marginBottom: '25px' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', borderBottom: '2px solid #222', paddingBottom: '4px' }}>
+                                                    <span style={{ fontWeight: 'bold', fontSize: '15px' }}>💵 Cash Receipts ({cashList.length})</span>
+                                                    <span style={{ fontWeight: 'bold', fontSize: '14px' }}>Subtotal: ${cashSubtotal.toFixed(2)}</span>
+                                                </div>
+                                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                                                    <thead>
+                                                        <tr style={{ backgroundColor: '#f5f5f5' }}>
+                                                            <th style={{ borderBottom: '1px solid #ccc', padding: '6px 8px', textAlign: 'left' }}>Student</th>
+                                                            <th style={{ borderBottom: '1px solid #ccc', padding: '6px 8px', textAlign: 'left' }}>Exam</th>
+                                                            <th style={{ borderBottom: '1px solid #ccc', padding: '6px 8px', textAlign: 'left' }}>Date</th>
+                                                            <th style={{ borderBottom: '1px solid #ccc', padding: '6px 8px', textAlign: 'right' }}>Amount</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {cashList.length === 0 ? (
+                                                            <tr>
+                                                                <td colSpan="4" style={{ padding: '8px', textAlign: 'center', color: '#777', fontStyle: 'italic' }}>No cash payments</td>
+                                                            </tr>
+                                                        ) : (
+                                                            cashList.map(r => (
+                                                                <tr key={r.id}>
+                                                                    <td style={{ borderBottom: '1px solid #eee', padding: '6px 8px' }}>{r.lastName}, {r.firstName}</td>
+                                                                    <td style={{ borderBottom: '1px solid #eee', padding: '6px 8px' }}>{r.testType || 'SAT'}</td>
+                                                                    <td style={{ borderBottom: '1px solid #eee', padding: '6px 8px' }}>{r.paymentDate || '—'}</td>
+                                                                    <td style={{ borderBottom: '1px solid #eee', padding: '6px 8px', textAlign: 'right' }}>${Number(r.paymentAmount || 0).toFixed(2)}</td>
+                                                                </tr>
+                                                            ))
+                                                        )}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+
+                                            {/* CHECK TABLE */}
+                                            <div style={{ marginBottom: '25px' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', borderBottom: '2px solid #222', paddingBottom: '4px' }}>
+                                                    <span style={{ fontWeight: 'bold', fontSize: '15px' }}>📝 Check Receipts ({checkList.length})</span>
+                                                    <span style={{ fontWeight: 'bold', fontSize: '14px' }}>Subtotal: ${checkSubtotal.toFixed(2)}</span>
+                                                </div>
+                                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                                                    <thead>
+                                                        <tr style={{ backgroundColor: '#f5f5f5' }}>
+                                                            <th style={{ borderBottom: '1px solid #ccc', padding: '6px 8px', textAlign: 'left' }}>Student</th>
+                                                            <th style={{ borderBottom: '1px solid #ccc', padding: '6px 8px', textAlign: 'left' }}>Check #</th>
+                                                            <th style={{ borderBottom: '1px solid #ccc', padding: '6px 8px', textAlign: 'left' }}>Exam</th>
+                                                            <th style={{ borderBottom: '1px solid #ccc', padding: '6px 8px', textAlign: 'left' }}>Date</th>
+                                                            <th style={{ borderBottom: '1px solid #ccc', padding: '6px 8px', textAlign: 'right' }}>Amount</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {checkList.length === 0 ? (
+                                                            <tr>
+                                                                <td colSpan="5" style={{ padding: '8px', textAlign: 'center', color: '#777', fontStyle: 'italic' }}>No check payments</td>
+                                                            </tr>
+                                                        ) : (
+                                                            checkList.map(r => (
+                                                                <tr key={r.id}>
+                                                                    <td style={{ borderBottom: '1px solid #eee', padding: '6px 8px' }}>{r.lastName}, {r.firstName}</td>
+                                                                    <td style={{ borderBottom: '1px solid #eee', padding: '6px 8px', fontWeight: 'bold' }}>{r.checkNumber ? `#${r.checkNumber}` : '—'}</td>
+                                                                    <td style={{ borderBottom: '1px solid #eee', padding: '6px 8px' }}>{r.testType || 'SAT'}</td>
+                                                                    <td style={{ borderBottom: '1px solid #eee', padding: '6px 8px' }}>{r.paymentDate || '—'}</td>
+                                                                    <td style={{ borderBottom: '1px solid #eee', padding: '6px 8px', textAlign: 'right' }}>${Number(r.paymentAmount || 0).toFixed(2)}</td>
+                                                                </tr>
+                                                            ))
+                                                        )}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+
+                                            {/* OTHER / CC TABLE IF ANY */}
+                                            {otherList.length > 0 && (
+                                                <div style={{ marginBottom: '25px' }}>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', borderBottom: '2px solid #222', paddingBottom: '4px' }}>
+                                                        <span style={{ fontWeight: 'bold', fontSize: '15px' }}>💳 Credit Card / Other Receipts ({otherList.length})</span>
+                                                        <span style={{ fontWeight: 'bold', fontSize: '14px' }}>Subtotal: ${otherSubtotal.toFixed(2)}</span>
+                                                    </div>
+                                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                                                        <thead>
+                                                            <tr style={{ backgroundColor: '#f5f5f5' }}>
+                                                                <th style={{ borderBottom: '1px solid #ccc', padding: '6px 8px', textAlign: 'left' }}>Student</th>
+                                                                <th style={{ borderBottom: '1px solid #ccc', padding: '6px 8px', textAlign: 'left' }}>Tender</th>
+                                                                <th style={{ borderBottom: '1px solid #ccc', padding: '6px 8px', textAlign: 'left' }}>Reference</th>
+                                                                <th style={{ borderBottom: '1px solid #ccc', padding: '6px 8px', textAlign: 'right' }}>Amount</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {otherList.map(r => (
+                                                                <tr key={r.id}>
+                                                                    <td style={{ borderBottom: '1px solid #eee', padding: '6px 8px' }}>{r.lastName}, {r.firstName}</td>
+                                                                    <td style={{ borderBottom: '1px solid #eee', padding: '6px 8px' }}>{r.paymentTender}</td>
+                                                                    <td style={{ borderBottom: '1px solid #eee', padding: '6px 8px' }}>{r.ccConfirmationCode || '—'}</td>
+                                                                    <td style={{ borderBottom: '1px solid #eee', padding: '6px 8px', textAlign: 'right' }}>${Number(r.paymentAmount || 0).toFixed(2)}</td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            )}
+                                        </>
+                                    );
+                                })()}
+
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '80px' }}>
+                                    <div style={{ width: '40%' }}>
+                                        <div style={{ borderBottom: '1px solid black', marginBottom: '5px', height: '30px' }}></div>
+                                        <div style={{ fontSize: '12px', color: '#555' }}>Prepared By (Signature)</div>
+                                    </div>
+                                    <div style={{ width: '40%' }}>
+                                        <div style={{ borderBottom: '1px solid black', marginBottom: '5px', height: '30px' }}></div>
+                                        <div style={{ fontSize: '12px', color: '#555' }}>Received By (Business Office)</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                                <button type="button" onClick={() => {
+                                    const printContent = document.getElementById('printable-deposit-sheet').innerHTML;
+                                    const printWindow = window.open('', '', 'width=800,height=600');
+                                    printWindow.document.write(
+                                        '<html><head><title>Deposit Sheet</title><style>' +
+                                        'body { font-family: sans-serif; padding: 40px; margin: 0; } ' +
+                                        '@media print { @page { margin: 0.5in; } }' +
+                                        '</style></head><body>' +
+                                        printContent +
+                                        '</body></html>'
+                                    );
+                                    printWindow.document.close();
+                                    printWindow.focus();
+                                    setTimeout(() => {
+                                        printWindow.print();
+                                        printWindow.close();
+                                    }, 250);
+                                }} style={{ padding: '8px 16px', border: '2px solid var(--fa-blue)', color: 'var(--fa-blue)', borderRadius: '6px', cursor: 'pointer', backgroundColor: 'white', fontWeight: 'bold' }}>
+                                    🖨️ Print Sheet
+                                </button>
+                            </div>
+                            <div style={{ display: 'flex', gap: '10px' }}>
+                                <button type="button" onClick={() => setShowDepositModal(false)} style={{ padding: '8px 16px', border: '1px solid #ccc', borderRadius: '6px', cursor: 'pointer', backgroundColor: 'white' }}>Cancel</button>
+                                <button type="button" onClick={() => finalizeDeposit(depositReady)} style={{ padding: '8px 16px', backgroundColor: '#34a853', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Finalize Deposit</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {showManualModal && (
                 <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, backdropFilter: 'blur(3px)' }}>

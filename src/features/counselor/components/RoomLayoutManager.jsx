@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../../firebase';
-import { doc, onSnapshot, setDoc, updateDoc, deleteField, serverTimestamp } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, updateDoc, deleteField, deleteDoc, serverTimestamp, collection, getDocs, writeBatch } from 'firebase/firestore';
 
 export default function RoomLayoutManager() {
   const [layouts, setLayouts] = useState([]);
@@ -18,7 +18,8 @@ export default function RoomLayoutManager() {
   // Tools definition
   const tools = [
     { id: 'seat', icon: '🪑', label: 'Desk', color: 'rgba(0, 70, 139, 0.15)', border: 'var(--fa-blue)' },
-    { id: 'table', icon: '🟦', label: 'Table', color: 'rgba(52, 168, 83, 0.15)', border: '#34a853' },
+    { id: 'table', icon: '🟦', label: 'Table (2)', color: 'rgba(52, 168, 83, 0.15)', border: '#34a853' },
+    { id: 'pod', icon: '🟪', label: 'Pod (8)', color: 'rgba(142, 36, 170, 0.15)', border: '#8e24aa' },
     { id: 'empty', icon: '⬜', label: 'Empty', color: 'rgba(255, 255, 255, 0.4)', border: 'var(--glass-border)' },
     { id: 'door', icon: '🚪', label: 'Door', color: 'rgba(158, 36, 50, 0.15)', border: 'var(--fa-red)' },
     { id: 'teacher_desk', icon: '👨‍🏫', label: 'Teacher', color: 'rgba(156, 39, 176, 0.15)', border: '#9c27b0' }
@@ -98,6 +99,29 @@ export default function RoomLayoutManager() {
     }
   };
 
+  // Resizes existing 2D grid preserving existing cells
+  const handleGridResize = (newRows, newCols) => {
+    const validRows = Math.max(1, Math.min(50, parseInt(newRows) || 1));
+    const validCols = Math.max(1, Math.min(50, parseInt(newCols) || 1));
+    
+    setGridSize({ rows: validRows, cols: validCols });
+    setGridData(prev => {
+      const resized = [];
+      for (let r = 0; r < validRows; r++) {
+        const row = [];
+        for (let c = 0; c < validCols; c++) {
+          if (prev[r] && prev[r][c] !== undefined) {
+            row.push(prev[r][c]);
+          } else {
+            row.push('empty');
+          }
+        }
+        resized.push(row);
+      }
+      return resized;
+    });
+  };
+
   // Painting logic
   const handleMouseDown = (r, c) => {
     setIsPainting(true);
@@ -114,6 +138,7 @@ export default function RoomLayoutManager() {
 
   const updateCell = (r, c) => {
     setGridData(prev => {
+      if (!prev[r]) return prev;
       const newGrid = [...prev];
       newGrid[r] = [...newGrid[r]];
       newGrid[r][c] = currentTool;
@@ -122,7 +147,8 @@ export default function RoomLayoutManager() {
   };
 
   const handleSave = async () => {
-    if (!roomName.trim()) {
+    const trimmedName = roomName.trim();
+    if (!trimmedName) {
       alert("Please provide a room name.");
       return;
     }
@@ -130,9 +156,10 @@ export default function RoomLayoutManager() {
     setStatusMsg('Saving...');
     try {
       const roomRef = doc(db, 'settings', 'room_layouts');
+      const isRename = selectedLayoutId !== 'new' && selectedLayoutId !== trimmedName;
         
-      await setDoc(roomRef, {
-        [roomName.trim()]: {
+      const payload = {
+        [trimmedName]: {
           rows: gridSize.rows,
           cols: gridSize.cols,
           grid: gridData.flat().map(c => {
@@ -143,12 +170,74 @@ export default function RoomLayoutManager() {
           }), // Save as flat array mapped back to V1 terminology
           lastUpdated: serverTimestamp()
         }
-      }, { merge: true });
-      
-      setStatusMsg('✅ Layout saved successfully!');
-      if (selectedLayoutId === 'new') {
-          setSelectedLayoutId(roomRef.id);
+      };
+
+      if (isRename) {
+        payload[selectedLayoutId] = deleteField();
       }
+
+      await setDoc(roomRef, payload, { merge: true });
+
+      // If renamed, migrate all saved seating charts referencing the old room name
+      if (isRename) {
+        try {
+          const chartsSnap = await getDocs(collection(db, 'seating_charts'));
+          for (const chartDoc of chartsSnap.docs) {
+            const data = chartDoc.data();
+            if (data.roomId === selectedLayoutId) {
+              const oldChartId = chartDoc.id;
+              // Generate new chart ID replacing old room name
+              const newChartId = oldChartId.replace(
+                `_${selectedLayoutId.replace(/\s+/g, '_')}_`,
+                `_${trimmedName.replace(/\s+/g, '_')}_`
+              );
+
+              const updatedChartData = {
+                ...data,
+                roomId: trimmedName,
+                lastUpdated: serverTimestamp()
+              };
+
+              // Write new chart doc
+              await setDoc(doc(db, 'seating_charts', newChartId), updatedChartData);
+              // Delete old chart doc if ID changed
+              if (newChartId !== oldChartId) {
+                await deleteDoc(doc(db, 'seating_charts', oldChartId));
+              }
+
+              // Update any students assigned to this room
+              if (data.assignedSeats) {
+                const studentIds = Object.values(data.assignedSeats).map(s => s.id).filter(Boolean);
+                if (studentIds.length > 0) {
+                  const studentBatch = writeBatch(db);
+                  let collectionName = 'master_students';
+                  if (data.testType === 'AP Testing') collectionName = 'ap_registrations';
+                  else if (data.testType === 'SAT' || data.testType === 'PSAT') collectionName = 'sat_registrations';
+
+                  studentIds.forEach(sId => {
+                    const sRef = doc(db, collectionName, sId);
+                    if (data.testType === 'Maine Science') {
+                      studentBatch.update(sRef, { maine_science_room: trimmedName });
+                    } else if (data.testType === 'Maine Through Year') {
+                      studentBatch.update(sRef, { maine_ty_math_room: trimmedName, maine_ty_reading_room: trimmedName });
+                    } else if (data.testType === 'Makeups') {
+                      studentBatch.update(sRef, { makeupRoom: trimmedName });
+                    } else {
+                      studentBatch.update(sRef, { assignedRoom: trimmedName });
+                    }
+                  });
+                  await studentBatch.commit();
+                }
+              }
+            }
+          }
+        } catch (chartErr) {
+          console.warn("Could not migrate seating charts for renamed room:", chartErr);
+        }
+      }
+      
+      setSelectedLayoutId(trimmedName);
+      setStatusMsg('✅ Layout saved successfully!');
       setTimeout(() => setStatusMsg(''), 3000);
     } catch (error) {
       console.error("Error saving room:", error);
@@ -187,7 +276,8 @@ export default function RoomLayoutManager() {
   const flatData = gridData.flat();
   const deskCount = flatData.filter(c => c === 'seat').length;
   const tableCount = flatData.filter(c => c === 'table').length;
-  const totalCapacity = deskCount + (tableCount * 2);
+  const podCount = flatData.filter(c => c === 'pod').length;
+  const totalCapacity = deskCount + (tableCount * 2) + (podCount * 8);
 
   if (loading) return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--fa-warm-gray)' }}>Loading room designer...</div>;
 
@@ -250,7 +340,7 @@ export default function RoomLayoutManager() {
                             type="number" 
                             min="1" max="50"
                             value={gridSize.rows}
-                            onChange={(e) => setGridSize({ ...gridSize, rows: parseInt(e.target.value) || 1 })}
+                            onChange={(e) => handleGridResize(e.target.value, gridSize.cols)}
                             style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--glass-border)', outline: 'none', boxSizing: 'border-box' }}
                         />
                     </div>
@@ -260,7 +350,7 @@ export default function RoomLayoutManager() {
                             type="number" 
                             min="1" max="50"
                             value={gridSize.cols}
-                            onChange={(e) => setGridSize({ ...gridSize, cols: parseInt(e.target.value) || 1 })}
+                            onChange={(e) => handleGridResize(gridSize.rows, e.target.value)}
                             style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--glass-border)', outline: 'none', boxSizing: 'border-box' }}
                         />
                     </div>
@@ -272,10 +362,16 @@ export default function RoomLayoutManager() {
                         <span style={{ color: 'var(--fa-warm-gray)' }}>Desks (1 seat):</span>
                         <span style={{ fontWeight: 'bold', color: 'var(--fa-dark-blue)' }}>{deskCount}</span>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}>
                         <span style={{ color: 'var(--fa-warm-gray)' }}>Tables (2 seats):</span>
                         <span style={{ fontWeight: 'bold', color: 'var(--fa-dark-blue)' }}>{tableCount}</span>
                     </div>
+                    {podCount > 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '8px' }}>
+                            <span style={{ color: '#8e24aa' }}>Pods (8 seats):</span>
+                            <span style={{ fontWeight: 'bold', color: '#8e24aa' }}>{podCount} ({podCount * 8} seats)</span>
+                        </div>
+                    )}
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', paddingTop: '8px', borderTop: '1px solid var(--glass-border)' }}>
                         <span style={{ fontWeight: 'bold', color: 'var(--fa-dark-blue)' }}>Total Capacity:</span>
                         <span style={{ fontWeight: 'bold', color: 'var(--fa-blue)' }}>{totalCapacity}</span>
@@ -367,6 +463,7 @@ export default function RoomLayoutManager() {
                         return (
                             <div
                                 key={`${r}-${c}`}
+                                onClick={() => updateCell(r, c)}
                                 onMouseDown={() => handleMouseDown(r, c)}
                                 onMouseEnter={() => handleMouseEnter(r, c)}
                                 onMouseUp={handleMouseUp}
@@ -378,7 +475,7 @@ export default function RoomLayoutManager() {
                                     justifyContent: 'center',
                                     alignItems: 'center',
                                     fontSize: '14px',
-                                    cursor: 'crosshair',
+                                    cursor: 'pointer',
                                     transition: 'background-color 0.1s'
                                 }}
                             >

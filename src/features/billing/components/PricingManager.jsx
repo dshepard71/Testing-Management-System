@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { db } from '../../../firebase';
 import { doc, onSnapshot, setDoc, serverTimestamp } from 'firebase/firestore';
 
-export default function PricingManager() {
+export default function PricingManager({ billingSettings, onCycleChange }) {
     const [pricing, setPricing] = useState({
         apStandard: 99,
         apReduced: 62,
@@ -13,9 +13,23 @@ export default function PricingManager() {
         satReduced: 18,
         customFees: []
     });
+
+    const [cycles, setCycles] = useState({
+        apCycle: billingSettings?.apCycle || 'May 2026',
+        satCycle: billingSettings?.satCycle || 'Fall 2026'
+    });
     
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+
+    useEffect(() => {
+        if (billingSettings) {
+            setCycles({
+                apCycle: billingSettings.apCycle || 'May 2026',
+                satCycle: billingSettings.satCycle || 'Fall 2026'
+            });
+        }
+    }, [billingSettings]);
 
     useEffect(() => {
         const unsub = onSnapshot(doc(db, 'settings', 'pricing'), (docSnap) => {
@@ -59,7 +73,13 @@ export default function PricingManager() {
                 ...pricing,
                 lastUpdated: serverTimestamp()
             }, { merge: true });
-            alert('✅ Pricing successfully updated!');
+
+            if (onCycleChange) {
+                await onCycleChange('apCycle', cycles.apCycle);
+                await onCycleChange('satCycle', cycles.satCycle);
+            }
+
+            alert('✅ Pricing and Cycles successfully updated!');
         } catch (e) {
             console.error("Error saving pricing:", e);
             alert("Error saving pricing.");
@@ -87,6 +107,36 @@ export default function PricingManager() {
                     >
                         {saving ? '⏳ Saving...' : '💾 Save Changes'}
                     </button>
+                </div>
+
+                {/* Active Billing Cycles */}
+                <div style={{ marginBottom: '32px', padding: '16px 20px', backgroundColor: 'rgba(0, 70, 139, 0.03)', borderRadius: '10px', border: '1px solid var(--glass-border)' }}>
+                    <h3 style={{ color: 'var(--fa-dark-blue)', margin: '0 0 6px 0', fontSize: '15px' }}>Active Billing Cycle Terms</h3>
+                    <p style={{ margin: '0 0 16px 0', fontSize: '12px', color: 'var(--fa-warm-gray)' }}>
+                        These labels appear on the Financial Summary dashboard, clearinghouses, and export headers.
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '20px' }}>
+                        <div>
+                            <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--fa-dark-blue)', marginBottom: '6px' }}>AP Billing Cycle</label>
+                            <input
+                                type="text"
+                                value={cycles.apCycle}
+                                onChange={e => setCycles({ ...cycles, apCycle: e.target.value })}
+                                placeholder="e.g. May 2026"
+                                style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--glass-border)', outline: 'none', fontSize: '13px' }}
+                            />
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: 'var(--fa-dark-blue)', marginBottom: '6px' }}>SAT / PSAT Billing Cycle</label>
+                            <input
+                                type="text"
+                                value={cycles.satCycle}
+                                onChange={e => setCycles({ ...cycles, satCycle: e.target.value })}
+                                placeholder="e.g. Fall 2026 or Spring 2026"
+                                style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--glass-border)', outline: 'none', fontSize: '13px' }}
+                            />
+                        </div>
+                    </div>
                 </div>
 
                 <div style={{ display: 'flex', gap: '48px' }}>

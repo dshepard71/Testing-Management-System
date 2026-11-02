@@ -346,7 +346,25 @@ export const useSeatingChartData = (initialChart = null) => {
 
         const matchingChart = savedCharts.find(c => c.id === expectedId);
         if (matchingChart && matchingChart.assignedSeats) {
-            setAssignedSeats(matchingChart.assignedSeats);
+            // Live sync accommodations from master students
+            const syncedSeats = {};
+            Object.entries(matchingChart.assignedSeats).forEach(([seatId, studentInfo]) => {
+                if (!studentInfo) return;
+                const emailKey = studentInfo.email?.toLowerCase().trim();
+                const liveMaster = (emailKey && masterStudentsMap[emailKey]) 
+                    || allMasterStudents.find(m => m.id === studentInfo.id || (m.schoolId && m.schoolId === studentInfo.schoolId));
+                
+                const liveAcc = liveMaster ? liveMaster.accommodations : studentInfo.accommodations;
+                const hasAcc = !!(liveAcc && liveAcc.toLowerCase() !== 'none' && liveAcc.trim() !== '');
+
+                syncedSeats[seatId] = {
+                    ...studentInfo,
+                    accommodations: liveAcc || '',
+                    hasAccommodations: hasAcc
+                };
+            });
+
+            setAssignedSeats(syncedSeats);
             setProctor(matchingChart.proctor || '');
             setMonitor(matchingChart.monitor || '');
             if (selectedTest === 'AP Testing' && matchingChart.apSubject) {
@@ -358,7 +376,7 @@ export const useSeatingChartData = (initialChart = null) => {
             setProctor('');
             setMonitor('');
         }
-    }, [selectedRoomId, selectedTest, selectedDate, selectedSession, savedCharts]);
+    }, [selectedRoomId, selectedTest, selectedDate, selectedSession, savedCharts, masterStudentsMap, allMasterStudents]);
 
     // Hook up logistics direct chart injection if supplied from logistics nav
     const handleLoadChartDirect = (chart) => {
@@ -372,7 +390,23 @@ export const useSeatingChartData = (initialChart = null) => {
         setProctor(chart.proctor || '');
         setMonitor(chart.monitor || '');
         if (chart.assignedSeats) {
-            setAssignedSeats(chart.assignedSeats);
+            const syncedSeats = {};
+            Object.entries(chart.assignedSeats).forEach(([seatId, studentInfo]) => {
+                if (!studentInfo) return;
+                const emailKey = studentInfo.email?.toLowerCase().trim();
+                const liveMaster = (emailKey && masterStudentsMap[emailKey]) 
+                    || allMasterStudents.find(m => m.id === studentInfo.id || (m.schoolId && m.schoolId === studentInfo.schoolId));
+                
+                const liveAcc = liveMaster ? liveMaster.accommodations : studentInfo.accommodations;
+                const hasAcc = !!(liveAcc && liveAcc.toLowerCase() !== 'none' && liveAcc.trim() !== '');
+
+                syncedSeats[seatId] = {
+                    ...studentInfo,
+                    accommodations: liveAcc || '',
+                    hasAccommodations: hasAcc
+                };
+            });
+            setAssignedSeats(syncedSeats);
         }
     };
 
@@ -603,26 +637,45 @@ export const useSeatingChartData = (initialChart = null) => {
         const { rows, cols, grid } = currentRoomLayout;
         let grid2D = [];
 
-        if (Array.isArray(grid) && grid.length === rows * cols) {
-            for (let i = 0; i < rows; i++) {
-                const r = [];
-                for (let j = 0; j < cols; j++) r.push(grid[i * cols + j]);
-                grid2D.push(r);
-            }
-        } else {
-            grid2D = grid || [];
+        let rawGrid = grid;
+        if (typeof rawGrid === 'string') {
+            try { rawGrid = JSON.parse(rawGrid); } catch (e) { rawGrid = []; }
         }
 
-        grid2D.forEach((row, rIndex) => {
-            row.forEach((cell, cIndex) => {
-                if (cell === 'desk') {
-                    if (!assignedSeats[`${rIndex}-${cIndex}-0`]) availableSeats.push(`${rIndex}-${cIndex}-0`);
-                } else if (cell === 'table') {
-                    if (!assignedSeats[`${rIndex}-${cIndex}-0`]) availableSeats.push(`${rIndex}-${cIndex}-0`);
-                    if (!assignedSeats[`${rIndex}-${cIndex}-1`]) availableSeats.push(`${rIndex}-${cIndex}-1`);
+        const rRows = parseInt(rows, 10) || 0;
+        const rCols = parseInt(cols, 10) || 0;
+
+        if (Array.isArray(rawGrid)) {
+            if (rawGrid.length === rRows * rCols && rRows > 0 && rCols > 0) {
+                for (let i = 0; i < rRows; i++) {
+                    const r = [];
+                    for (let j = 0; j < rCols; j++) r.push(rawGrid[i * rCols + j]);
+                    grid2D.push(r);
                 }
+            } else if (rawGrid.length > 0 && Array.isArray(rawGrid[0])) {
+                grid2D = rawGrid;
+            }
+        }
+
+        if (Array.isArray(grid2D)) {
+            grid2D.forEach((row, rIndex) => {
+                if (!Array.isArray(row)) return;
+                row.forEach((cell, cIndex) => {
+                    if (cell === 'desk') {
+                        if (!assignedSeats[`${rIndex}-${cIndex}-0`]) availableSeats.push(`${rIndex}-${cIndex}-0`);
+                    } else if (cell === 'table') {
+                        if (!assignedSeats[`${rIndex}-${cIndex}-0`]) availableSeats.push(`${rIndex}-${cIndex}-0`);
+                        if (!assignedSeats[`${rIndex}-${cIndex}-1`]) availableSeats.push(`${rIndex}-${cIndex}-1`);
+                    } else if (cell === 'pod') {
+                        for (let slot = 0; slot < 8; slot++) {
+                            if (!assignedSeats[`${rIndex}-${cIndex}-${slot}`]) {
+                                availableSeats.push(`${rIndex}-${cIndex}-${slot}`);
+                            }
+                        }
+                    }
+                });
             });
-        });
+        }
 
         const currentAssignedIds = Object.values(assignedSeats).map(s => s.id);
         const unassignedStudents = filteredStudents.filter(s => !currentAssignedIds.includes(s.id));

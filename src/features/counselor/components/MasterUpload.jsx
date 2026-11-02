@@ -35,6 +35,8 @@ const MasterUpload = ({ filterByCaseload = false, staffName = '', impersonatedCa
     const [filterAdvisor, setFilterAdvisor] = useState('All');
     const [filterAccom, setFilterAccom] = useState('All');
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+    const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false);
+    const [duplicateCandidateIds, setDuplicateCandidateIds] = useState([]);
     const [editingId, setEditingId] = useState(null);
     const [editData, setEditData] = useState({});
     const [selectedIds, setSelectedIds] = useState([]);
@@ -136,6 +138,26 @@ const MasterUpload = ({ filterByCaseload = false, staffName = '', impersonatedCa
                 waiverEligible = isTruthy(waiverVal) || String(waiverVal).toLowerCase() === 'yes' ? 'Yes' : 'No';
             }
 
+            // Smart extraction for School Counselor from "Head advisor", "Advisors", or "Counselor"
+            const rawAdvisorStr = String(
+                row['Head advisor'] || row['Head Advisor'] || row['head_advisor'] ||
+                row['Advisors'] || row['Advisor'] || row['advisor'] ||
+                row['Counselor'] || row['counselor'] || ''
+            ).trim();
+
+            const extractCounselor = (str) => {
+                if (!str) return '';
+                const lower = str.toLowerCase();
+                if (lower.includes('sturdevant') || lower.includes('shepard')) return 'David Sturdevant';
+                if (lower.includes('mcdonnell')) return 'Emily McDonnell';
+                if (lower.includes('bazanchuk')) return 'Mary Bazanchuk';
+                if (lower.includes('umphrey')) return 'Nicholas Umphrey';
+                // Fallback: if no recognized counselor found, preserve the string or first item
+                return str.split(',')[0].trim();
+            };
+
+            const parsedCounselor = extractCounselor(rawAdvisorStr);
+
             return {
                 rowIndex: index + 2,
                 stateId: String(row['State ID'] || row['state_id'] || ''),
@@ -150,7 +172,8 @@ const MasterUpload = ({ filterByCaseload = false, staffName = '', impersonatedCa
                 accommodations: accommodations,
                 accommodationNotes: row['Accommodation Notes'] || row['accommodation_notes'] || '',
                 hasAccommodationData: hasCheckboxAccommodations || 'Accommodations' in row || 'accommodations' in row || 'Accommodation Notes' in row || 'accommodation_notes' in row,
-                advisor: row['Advisors'] || row['Advisor'] || row['advisor'] || row['Counselor'] || row['counselor'] || '',
+                advisor: parsedCounselor,
+                counselor: parsedCounselor,
                 caseManager: row['Case Manager'] || row['case_manager'] || '',
                 schoolProgram: row['School Program'] || row['School program'] || row['school_program'] || row['Program'] || '',
                 waiverEligible: waiverEligible,
@@ -210,7 +233,19 @@ const MasterUpload = ({ filterByCaseload = false, staffName = '', impersonatedCa
             }
 
             data.forEach((student) => {
-                const studentKey = student.email ? student.email.replace(/[.#$/[\]]/g, '_') : doc(collection(db, 'master_students')).id;
+                // Find if an existing student record matches this student to avoid creating ghost duplicates
+                const matchExisting = students.find(s => 
+                    (student.email && s.email && s.email.toLowerCase() === student.email.toLowerCase()) ||
+                    (student.schoolId && s.schoolId && String(s.schoolId) === String(student.schoolId)) ||
+                    (s.lastName && s.firstName &&
+                     s.lastName.toLowerCase() === (student.lastName || '').toLowerCase() &&
+                     s.firstName.toLowerCase() === (student.firstName || '').toLowerCase())
+                );
+
+                const studentKey = student.email 
+                    ? student.email.replace(/[.#$/[\]]/g, '_')
+                    : (matchExisting ? matchExisting.id : (student.schoolId ? `id_${student.schoolId}` : `name_${(student.lastName || '').toLowerCase().replace(/[^a-z0-9]/g, '')}_${(student.firstName || '').toLowerCase().replace(/[^a-z0-9]/g, '')}`));
+
                 const updateData = { status: 'Active' };
 
                 // Generic SIS protected fields unless this import specifically includes accommodation data and user allows it
@@ -336,6 +371,115 @@ const MasterUpload = ({ filterByCaseload = false, staffName = '', impersonatedCa
         setSelectedIds(prev =>
             prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
         );
+    };
+
+    // Calculate duplicate student clusters based on clean first + last name
+    const duplicateGroups = useMemo(() => {
+        const groups = {};
+        students.forEach(s => {
+            const key = `${(s.lastName || '').trim().toLowerCase()}_${(s.firstName || '').trim().toLowerCase()}`;
+            if (!key || key === '_') return;
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(s);
+        });
+
+        // Filter to only groups having more than 1 record
+        const dupes = [];
+        Object.entries(groups).forEach(([nameKey, records]) => {
+            if (records.length > 1) {
+                // Score records by richness of data and official school domain:
+                // Official school email (+25), any email (+10), schoolId (+5), advisor (+3), accommodations (+3), stateId (+2), dob (+2)
+                const scoreRecord = (r) => {
+                    let score = 0;
+                    const em = (r.email || '').toLowerCase().trim();
+                    if (em.includes('@fryeburgacademy.org') || em.includes('@myfryeburg.org')) {
+                        score += 25;
+                    } else if (em) {
+                        score += 10;
+                    }
+                    if (r.schoolId) score += 5;
+                    if (r.advisor) score += 3;
+                    if (r.accommodations && r.accommodations !== 'None') score += 3;
+                    if (r.stateId) score += 2;
+                    if (r.dob) score += 2;
+                    return score;
+                };
+
+                // Sort descending by score: default recommended record is first
+                const sorted = [...records].sort((a, b) => scoreRecord(b) - scoreRecord(a));
+
+                dupes.push({
+                    nameKey,
+                    name: `${sorted[0].lastName}, ${sorted[0].firstName}`,
+                    records: sorted,
+                    defaultKeepId: sorted[0].id
+                });
+            }
+        });
+
+        return dupes;
+    }, [students]);
+
+    // Track which record the user chooses to KEEP for each group: { [nameKey]: recordId }
+    const [customKeepMap, setCustomKeepMap] = useState({});
+
+    const openDuplicateModal = () => {
+        // Initialize default keep map and remove IDs
+        const initialKeepMap = {};
+        const removeIds = [];
+
+        duplicateGroups.forEach(g => {
+            initialKeepMap[g.nameKey] = g.defaultKeepId;
+            g.records.forEach(r => {
+                if (r.id !== g.defaultKeepId) {
+                    removeIds.push(r.id);
+                }
+            });
+        });
+
+        setCustomKeepMap(initialKeepMap);
+        setDuplicateCandidateIds(removeIds);
+        setIsDuplicateModalOpen(true);
+    };
+
+    // When user chooses a different record to KEEP for a group
+    const handleSelectKeepRecord = (nameKey, newKeepId, groupRecords) => {
+        setCustomKeepMap(prev => ({ ...prev, [nameKey]: newKeepId }));
+
+        // Adjust candidate delete IDs: remove the new keep ID, and add all other group records to delete
+        setDuplicateCandidateIds(prev => {
+            const otherIds = groupRecords.filter(r => r.id !== newKeepId).map(r => r.id);
+            const filtered = prev.filter(id => !groupRecords.some(r => r.id === id));
+            return [...filtered, ...otherIds];
+        });
+    };
+
+    const handleConfirmRemoveDuplicates = async () => {
+        if (duplicateCandidateIds.length === 0) {
+            alert("No duplicate records selected for removal.");
+            return;
+        }
+
+        if (!window.confirm(`Are you sure you want to remove the ${duplicateCandidateIds.length} selected duplicate records?`)) {
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const batch = writeBatch(db);
+            duplicateCandidateIds.forEach(id => {
+                batch.delete(doc(db, 'master_students', id));
+            });
+            await batch.commit();
+            alert(`✅ Successfully removed ${duplicateCandidateIds.length} duplicate records!`);
+            setIsDuplicateModalOpen(false);
+            setDuplicateCandidateIds([]);
+        } catch (err) {
+            console.error("Error removing duplicates:", err);
+            alert("Failed to delete duplicate records.");
+        } finally {
+            setLoading(false);
+        }
     };
 
     const filteredStudents = students.filter(s => {
@@ -504,6 +648,28 @@ const MasterUpload = ({ filterByCaseload = false, staffName = '', impersonatedCa
                     >
                         📥 Export CSV ({filteredStudents.length})
                     </button>
+
+                    {effectiveRole === 'admin' && duplicateGroups.length > 0 && (
+                        <button
+                            onClick={openDuplicateModal}
+                            style={{
+                                padding: '8px 14px',
+                                backgroundColor: '#fff3cd',
+                                color: '#856404',
+                                border: '1px solid #ffeeba',
+                                borderRadius: '8px',
+                                fontWeight: 'bold',
+                                cursor: 'pointer',
+                                fontSize: '13px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px'
+                            }}
+                            title="Review and safely clean duplicate records"
+                        >
+                            <span>⚠️ Review Duplicates ({duplicateGroups.length})</span>
+                        </button>
+                    )}
 
                     {effectiveRole === 'admin' && (
                         <button
@@ -767,6 +933,162 @@ const MasterUpload = ({ filterByCaseload = false, staffName = '', impersonatedCa
                                     }}
                                 >
                                     {importing ? 'Saving...' : `Import & Save (${data.length} Records)`}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* Duplicate Records Review Modal */}
+            {isDuplicateModalOpen && (
+                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, backdropFilter: 'blur(3px)' }}>
+                    <div className="glass-panel" style={{ backgroundColor: 'white', padding: '32px', borderRadius: '12px', width: '90%', maxWidth: '950px', maxHeight: '85vh', overflowY: 'auto' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                            <div>
+                                <h3 style={{ margin: 0, color: 'var(--fa-dark-blue)' }}>Review & Clean Duplicate Records</h3>
+                                <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--fa-warm-gray)' }}>
+                                    Found <strong>{duplicateGroups.length} students</strong> with multiple database records. The system has automatically highlighted the most complete record to <strong>KEEP</strong> and identified empty/ghost records for removal.
+                                </p>
+                            </div>
+                            <button onClick={() => setIsDuplicateModalOpen(false)} style={{ border: 'none', background: 'none', fontSize: '22px', cursor: 'pointer', color: '#888' }}>&times;</button>
+                        </div>
+
+                        <div style={{ margin: '16px 0', border: '1px solid var(--glass-border)', borderRadius: '8px', overflow: 'hidden' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+                                <thead>
+                                    <tr style={{ backgroundColor: 'rgba(0, 70, 139, 0.05)', borderBottom: '1px solid var(--glass-border)' }}>
+                                        <th style={{ padding: '10px 14px', width: '50px', textAlign: 'center' }}>Keep</th>
+                                        <th style={{ padding: '10px 14px', width: '60px', textAlign: 'center' }}>Remove?</th>
+                                        <th style={{ padding: '10px 14px' }}>Status</th>
+                                        <th style={{ padding: '10px 14px' }}>Student Name</th>
+                                        <th style={{ padding: '10px 14px' }}>Student ID</th>
+                                        <th style={{ padding: '10px 14px' }}>Email</th>
+                                        <th style={{ padding: '10px 14px' }}>Counselor</th>
+                                        <th style={{ padding: '10px 14px' }}>Grade</th>
+                                        <th style={{ padding: '10px 14px' }}>Accommodations</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {duplicateGroups.map((group, gIdx) => {
+                                        const currentKeepId = customKeepMap[group.nameKey] || group.defaultKeepId;
+
+                                        return (
+                                            <React.Fragment key={group.nameKey}>
+                                                {group.records.map((r, rIdx) => {
+                                                    const isKeep = r.id === currentKeepId;
+                                                    const isMarkedDelete = duplicateCandidateIds.includes(r.id);
+
+                                                    return (
+                                                        <tr
+                                                            key={r.id}
+                                                            style={{
+                                                                backgroundColor: isKeep ? '#f0fdf4' : (isMarkedDelete ? '#fef2f2' : '#ffffff'),
+                                                                borderTop: (rIdx === 0 && gIdx > 0) ? '2px solid #cbd5e1' : 'none',
+                                                                borderBottom: '1px solid #f1f5f9',
+                                                                transition: 'background-color 0.2s'
+                                                            }}
+                                                        >
+                                                            {/* Radio Button: Select as KEEP */}
+                                                            <td style={{ padding: '8px 14px', textAlign: 'center' }}>
+                                                                <input
+                                                                    type="radio"
+                                                                    name={`keep_group_${group.nameKey}`}
+                                                                    checked={isKeep}
+                                                                    onChange={() => handleSelectKeepRecord(group.nameKey, r.id, group.records)}
+                                                                    title="Select this record to KEEP"
+                                                                    style={{ accentColor: '#16a34a', width: '16px', height: '16px', cursor: 'pointer' }}
+                                                                />
+                                                            </td>
+
+                                                            {/* Checkbox: Mark for Removal */}
+                                                            <td style={{ padding: '8px 14px', textAlign: 'center' }}>
+                                                                {isKeep ? (
+                                                                    <span style={{ color: '#16a34a', fontSize: '13px', fontWeight: 'bold' }}>✓</span>
+                                                                ) : (
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={isMarkedDelete}
+                                                                        onChange={() => {
+                                                                            setDuplicateCandidateIds(prev =>
+                                                                                prev.includes(r.id) ? prev.filter(x => x !== r.id) : [...prev, r.id]
+                                                                            );
+                                                                        }}
+                                                                        title="Check to delete this duplicate record"
+                                                                        style={{ accentColor: 'var(--fa-red)', width: '16px', height: '16px', cursor: 'pointer' }}
+                                                                    />
+                                                                )}
+                                                            </td>
+
+                                                            {/* Status Badge */}
+                                                            <td style={{ padding: '8px 14px' }}>
+                                                                {isKeep ? (
+                                                                    <span style={{ backgroundColor: '#dcfce7', color: '#15803d', padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 'bold' }}>
+                                                                        KEEP
+                                                                    </span>
+                                                                ) : (
+                                                                    <span style={{ backgroundColor: '#fee2e2', color: '#b91c1c', padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 'bold' }}>
+                                                                        DUPLICATE
+                                                                    </span>
+                                                                )}
+                                                            </td>
+
+                                                            {/* Student Name */}
+                                                            <td style={{ padding: '8px 14px', fontWeight: isKeep ? 'bold' : 'normal', color: isKeep ? 'var(--fa-dark-blue)' : '#64748b' }}>
+                                                                {r.lastName}, {r.firstName}
+                                                            </td>
+
+                                                            <td style={{ padding: '8px 14px', color: isKeep ? 'inherit' : '#64748b' }}>
+                                                                {r.schoolId || <span style={{ color: '#cbd5e1' }}>—</span>}
+                                                            </td>
+                                                            <td style={{ padding: '8px 14px', color: isKeep ? 'var(--fa-blue)' : '#64748b', fontWeight: isKeep ? '600' : 'normal' }}>
+                                                                {r.email || <span style={{ color: '#cbd5e1' }}>—</span>}
+                                                            </td>
+                                                            <td style={{ padding: '8px 14px', color: isKeep ? 'inherit' : '#64748b' }}>
+                                                                {r.advisor || <span style={{ color: '#cbd5e1' }}>—</span>}
+                                                            </td>
+                                                            <td style={{ padding: '8px 14px', color: isKeep ? 'inherit' : '#64748b' }}>
+                                                                {r.grade || <span style={{ color: '#cbd5e1' }}>—</span>}
+                                                            </td>
+                                                            <td style={{ padding: '8px 14px', color: isKeep ? 'inherit' : '#64748b' }}>
+                                                                {r.accommodations || <span style={{ color: '#cbd5e1' }}>—</span>}
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </React.Fragment>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px' }}>
+                            <div style={{ fontSize: '12px', color: 'var(--fa-warm-gray)' }}>
+                                Selected <strong>{duplicateCandidateIds.length}</strong> record(s) for removal. The green "KEEP" records will remain untouched.
+                            </div>
+                            <div style={{ display: 'flex', gap: '10px' }}>
+                                <button
+                                    onClick={() => setIsDuplicateModalOpen(false)}
+                                    style={{ padding: '8px 16px', border: '1px solid #ccc', borderRadius: '6px', cursor: 'pointer', backgroundColor: 'white', fontSize: '13px' }}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleConfirmRemoveDuplicates}
+                                    disabled={duplicateCandidateIds.length === 0}
+                                    style={{
+                                        padding: '8px 20px',
+                                        backgroundColor: 'var(--fa-red)',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '6px',
+                                        fontWeight: 'bold',
+                                        cursor: duplicateCandidateIds.length === 0 ? 'not-allowed' : 'pointer',
+                                        fontSize: '13px',
+                                        opacity: duplicateCandidateIds.length === 0 ? 0.6 : 1
+                                    }}
+                                >
+                                    Delete {duplicateCandidateIds.length} Selected Duplicate(s)
                                 </button>
                             </div>
                         </div>

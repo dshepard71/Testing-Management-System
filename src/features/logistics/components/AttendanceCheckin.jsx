@@ -193,9 +193,12 @@ export default function AttendanceCheckin({ testType = 'all' }) {
 
         const consolidatedMap = new Map();
         rawList.forEach(s => {
-            const f = s.firstName || s.name?.split(' ')[0] || '';
-            const l = s.lastName || s.name?.split(' ').pop() || '';
-            const idKey = (s.stateId && s.stateId !== 'unknown') ? s.stateId : `${f.toLowerCase()}_${l.toLowerCase()}`;
+            const f = (s.firstName || s.name?.split(' ')[0] || '').trim();
+            const l = (s.lastName || s.name?.split(' ').slice(1).join(' ') || '').trim();
+            const emailKey = (s.email || '').trim().toLowerCase();
+            const stateIdKey = (s.stateId && s.stateId !== 'unknown' && s.stateId.trim() !== '') ? s.stateId.trim() : null;
+            // Primary deduplication key: email if available, else stateId, else normalized first_last
+            const idKey = emailKey || stateIdKey || `${f.toLowerCase()}_${l.toLowerCase()}`;
             
             if (!consolidatedMap.has(idKey)) {
                 consolidatedMap.set(idKey, { ...s, firstName: f, lastName: l, sourceRecords: [{ id: s.id, source: s.collectionSource || 'master_students' }] });
@@ -203,6 +206,10 @@ export default function AttendanceCheckin({ testType = 'all' }) {
                 const existing = consolidatedMap.get(idKey);
                 if (s.attendanceStatus === 'Present') existing.attendanceStatus = 'Present';
                 else if (s.attendanceStatus === 'Absent' && existing.attendanceStatus !== 'Present') existing.attendanceStatus = 'Absent';
+                // Merge matchedTest if existing was generic
+                if (s.matchedTest && (!existing.matchedTest || existing.matchedTest === 'General' || existing.matchedTest === 'Test')) {
+                    existing.matchedTest = s.matchedTest;
+                }
                 existing.sourceRecords.push({ id: s.id, source: s.collectionSource || 'master_students' });
             }
         });
@@ -242,70 +249,99 @@ export default function AttendanceCheckin({ testType = 'all' }) {
         }
     };
 
+    const generateAttendanceReportText = () => {
+        const presentStudents = [];
+        const absentStudents = [];
+
+        checkinList.forEach(s => {
+            const status = s.attendanceStatus || 'Not Checked';
+            const line = `- ${s.lastName}, ${s.firstName} (Grade ${s.grade || 'N/A'}) - Room: ${selectedRoom} - Test: ${s.matchedTest || 'General'}`;
+            
+            if (status === 'Absent') {
+                absentStudents.push(line);
+            } else {
+                presentStudents.push(line);
+            }
+        });
+
+        presentStudents.sort();
+        absentStudents.sort();
+
+        const reportLines = [
+            `Testing Attendance Report - ${selectedRoom} (${selectedSession} Session)`,
+            `Test: ${roomTestName}`,
+            `Date: ${selectedDate}`,
+            ``,
+            `=== ABSENT STUDENTS (${absentStudents.length}) ===`,
+            absentStudents.length > 0 ? absentStudents.join('\n') : 'None',
+            ``,
+            `=== PRESENT STUDENTS (${presentStudents.length}) ===`,
+            presentStudents.length > 0 ? presentStudents.join('\n') : 'None'
+        ];
+
+        return {
+            subject: `${roomTestName} Attendance: ${selectedRoom} (${selectedSession}) - ${selectedDate}`,
+            bodyText: reportLines.join('\n')
+        };
+    };
+
+    const [copiedReport, setCopiedReport] = useState(false);
+
+    const handleCopyReport = () => {
+        if (!selectedDate || checkinList.length === 0) {
+            alert("No students to copy for this room.");
+            return;
+        }
+        const { subject, bodyText } = generateAttendanceReportText();
+        const fullClipboard = `Subject: ${subject}\n\n${bodyText}`;
+        navigator.clipboard.writeText(fullClipboard).then(() => {
+            setCopiedReport(true);
+            setTimeout(() => setCopiedReport(false), 3000);
+        }).catch(err => {
+            console.error("Clipboard copy failed:", err);
+            alert("Could not copy automatically. Please select text manually.");
+        });
+    };
+
     const handleEmailAttendance = async () => {
         if (!selectedDate) {
             alert("Please select a Date first.");
             return;
         }
 
+        if (checkinList.length === 0) {
+            alert("No students to report for this room.");
+            return;
+        }
+
         try {
             setSaving(true);
-            const usersRef = collection(db, 'users');
-            const q = query(usersRef, where('role', '==', 'attendance'));
-            const snapshot = await getDocs(q);
-            
-            let clerkEmail = 'attendance@fryeburgacademy.org'; 
-            if (!snapshot.empty) {
-                clerkEmail = snapshot.docs[0].data().email;
+            // Send directly to the logged-in user so they can review and forward
+            const recipientEmail = (user && user.email) ? user.email : 'dshepard@fryeburgacademy.org';
+
+            const { subject, bodyText } = generateAttendanceReportText();
+
+            // Try direct Gmail compose link first
+            const encodedSubject = encodeURIComponent(subject);
+            const encodedBody = encodeURIComponent(bodyText);
+            const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(recipientEmail)}&su=${encodedSubject}&body=${encodedBody}`;
+
+            // Copy to clipboard in background as an immediate fallback
+            try {
+                await navigator.clipboard.writeText(`Subject: ${subject}\n\n${bodyText}`);
+            } catch (clipErr) {
+                // Ignore clipboard permission issues if any
             }
 
-            const dateFilter = selectedDate.trim();
-            const presentStudents = [];
-            const absentStudents = [];
-
-            if (checkinList.length === 0) {
-                alert("No students to report for this room.");
-                setSaving(false);
-                return;
+            const win = window.open(gmailUrl, '_blank');
+            if (!win || win.closed || typeof win.closed === 'undefined') {
+                // If popup was blocked or failed, fall back to mailto:
+                window.location.href = `mailto:${recipientEmail}?subject=${encodedSubject}&body=${encodedBody}`;
             }
-
-            checkinList.forEach(s => {
-                const status = s.attendanceStatus || 'Not Checked';
-                const line = `- ${s.lastName}, ${s.firstName} (Grade ${s.grade || 'N/A'}) - Room: ${selectedRoom} - Test: ${s.matchedTest || 'General'}`;
-                
-                if (status === 'Absent') {
-                    absentStudents.push(line);
-                } else {
-                    // Treat 'Present' and 'Not Checked' as Present per user preference
-                    presentStudents.push(line);
-                }
-            });
-
-            presentStudents.sort();
-            absentStudents.sort();
-
-            const bodyLines = [
-                `Testing Attendance Report - ${selectedRoom} (${selectedSession} Session)`,
-                `Test: ${roomTestName}`,
-                `Date: ${selectedDate}`,
-                ``,
-                `=== ABSENT STUDENTS (${absentStudents.length}) ===`,
-                absentStudents.length > 0 ? absentStudents.join('\n') : 'None',
-                ``,
-                `=== PRESENT STUDENTS (${presentStudents.length}) ===`,
-                presentStudents.length > 0 ? presentStudents.join('\n') : 'None'
-            ];
-
-            const subject = encodeURIComponent(`${roomTestName} Absences: ${selectedRoom} (${selectedSession}) - ${selectedDate}`);
-            const body = encodeURIComponent(bodyLines.join('\n'));
-            
-            // Use Gmail's direct compose URL to bypass Windows 'default app' issues
-            const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${clerkEmail}&su=${subject}&body=${body}`;
-            window.open(gmailUrl, '_blank');
 
         } catch (error) {
             console.error("Error generating attendance email:", error);
-            alert("Failed to generate email. Please check console.");
+            alert("Failed to generate email. Report copied to clipboard instead!");
         } finally {
             setSaving(false);
         }
@@ -334,6 +370,26 @@ export default function AttendanceCheckin({ testType = 'all' }) {
         }
     };
 
+    const handleResetRoomAttendance = async () => {
+        if (!window.confirm(`Reset attendance for all students in ${selectedRoom}? This will change everyone back to Unchecked.`)) return;
+
+        try {
+            const batch = writeBatch(db);
+            checkinList.forEach(s => {
+                s.sourceRecords.forEach(target => {
+                    batch.update(doc(db, target.source, target.id), { 
+                        attendanceStatus: null,
+                        attendanceTimestamp: null
+                    });
+                });
+            });
+            await batch.commit();
+        } catch (error) {
+            console.error("Error resetting attendance:", error);
+            alert("Failed to reset attendance.");
+        }
+    };
+
     const presentCount = checkinList.filter(s => s.attendanceStatus === 'Present').length;
     const absentCount = checkinList.filter(s => s.attendanceStatus === 'Absent').length;
     const uncheckedCount = checkinList.length - presentCount - absentCount;
@@ -348,13 +404,22 @@ export default function AttendanceCheckin({ testType = 'all' }) {
                     </p>
                 </div>
                 
-                <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-end' }}>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                    <button 
+                        onClick={handleCopyReport}
+                        disabled={saving}
+                        title="Copy attendance report text to clipboard"
+                        style={{ padding: '8px 14px', backgroundColor: copiedReport ? '#188038' : 'white', color: copiedReport ? 'white' : 'var(--fa-dark-blue)', border: '1px solid var(--glass-border)', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', height: '38px', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                        {copiedReport ? '✓ Copied!' : '📋 Copy Report'}
+                    </button>
                     <button 
                         onClick={handleEmailAttendance}
                         disabled={saving}
+                        title="Open email addressed to you to review and forward"
                         style={{ padding: '8px 16px', backgroundColor: 'var(--fa-blue)', color: 'white', border: 'none', borderRadius: '8px', cursor: saving ? 'default' : 'pointer', fontWeight: 'bold', height: '38px', opacity: saving ? 0.7 : 1 }}
                     >
-                        📧 Email Attendance
+                        📧 Email to Me
                     </button>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                         <label style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--fa-warm-gray)', textTransform: 'uppercase' }}>Date</label>
@@ -408,9 +473,19 @@ export default function AttendanceCheckin({ testType = 'all' }) {
                                 {uncheckedCount > 0 && (
                                     <button 
                                         onClick={handleMarkAllRemainingPresent}
-                                        style={{ marginLeft: '8px', background: '#188038', color: 'white', border: 'none', padding: '6px 16px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}
+                                        style={{ marginLeft: '8px', background: '#188038', color: 'white', border: 'none', padding: '6px 14px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}
                                     >
                                         ✨ Mark Remaining Present
+                                    </button>
+                                )}
+
+                                {(presentCount > 0 || absentCount > 0) && (
+                                    <button 
+                                        onClick={handleResetRoomAttendance}
+                                        title="Clear all Present/Absent marks for this room"
+                                        style={{ background: '#fff', color: '#5f6368', border: '1px solid var(--glass-border)', padding: '6px 12px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}
+                                    >
+                                        🔄 Reset Room
                                     </button>
                                 )}
                             </div>

@@ -2,10 +2,25 @@ import React, { useEffect, useState } from 'react';
 import { db } from '../../../firebase';
 import { collection, onSnapshot } from 'firebase/firestore';
 
-const FinancialSummaryView = ({ apCycle, satCycle }) => {
+const FinancialSummaryView = ({ apCycle, satCycle, onCycleChange }) => {
     const [apStats, setApStats] = useState({ total: 0, billed: 0, count: 0 });
     const [satStats, setSatStats] = useState({ total: 0, billed: 0, boarding: 0, day: 0, commuter: 0, count: 0 });
     const [loading, setLoading] = useState(true);
+
+    const [editingCycle, setEditingCycle] = useState(null); // 'ap' | 'sat' | null
+    const [tempCycleVal, setTempCycleVal] = useState('');
+
+    const startEdit = (type, currentVal) => {
+        setEditingCycle(type);
+        setTempCycleVal(currentVal || '');
+    };
+
+    const saveEdit = (type) => {
+        if (onCycleChange && tempCycleVal.trim()) {
+            onCycleChange(type === 'ap' ? 'apCycle' : 'satCycle', tempCycleVal.trim());
+        }
+        setEditingCycle(null);
+    };
 
     useEffect(() => {
         const unsubAP = onSnapshot(collection(db, 'ap_registrations'), (snapshot) => {
@@ -60,12 +75,69 @@ const FinancialSummaryView = ({ apCycle, satCycle }) => {
         <div style={{ marginTop: '0' }}>
             <div style={{ marginBottom: '30px' }}>
                 <h3 style={{ margin: 0 }}>Financial Summary</h3>
-                <div style={{ display: 'flex', gap: '20px', marginTop: '8px' }}>
-                    <div style={{ fontSize: '13px', color: '#666' }}>
-                        AP Cycle: <span style={{ color: '#1a73e8', fontWeight: 'bold' }}>{apCycle}</span>
+                <div style={{ display: 'flex', gap: '24px', marginTop: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    {/* AP Cycle */}
+                    <div style={{ fontSize: '13px', color: '#666', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span>AP Cycle:</span>
+                        {editingCycle === 'ap' ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                <input
+                                    type="text"
+                                    value={tempCycleVal}
+                                    onChange={(e) => setTempCycleVal(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') saveEdit('ap'); if (e.key === 'Escape') setEditingCycle(null); }}
+                                    autoFocus
+                                    style={{ padding: '2px 6px', fontSize: '12px', borderRadius: '4px', border: '1px solid var(--fa-blue)', outline: 'none' }}
+                                />
+                                <button onClick={() => saveEdit('ap')} style={{ border: 'none', background: '#1e8e3e', color: 'white', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '11px' }}>Save</button>
+                                <button onClick={() => setEditingCycle(null)} style={{ border: 'none', background: '#ccc', color: '#333', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '11px' }}>✕</button>
+                            </span>
+                        ) : (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                <span style={{ color: '#1a73e8', fontWeight: 'bold' }}>{apCycle}</span>
+                                {onCycleChange && (
+                                    <button
+                                        onClick={() => startEdit('ap', apCycle)}
+                                        style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#888', fontSize: '12px', padding: '0 2px' }}
+                                        title="Edit AP Cycle"
+                                    >
+                                        ✏️
+                                    </button>
+                                )}
+                            </span>
+                        )}
                     </div>
-                    <div style={{ fontSize: '13px', color: '#666' }}>
-                        SAT/PSAT Cycle: <span style={{ color: '#1a73e8', fontWeight: 'bold' }}>{satCycle}</span>
+
+                    {/* SAT/PSAT Cycle */}
+                    <div style={{ fontSize: '13px', color: '#666', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span>SAT/PSAT Cycle:</span>
+                        {editingCycle === 'sat' ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                <input
+                                    type="text"
+                                    value={tempCycleVal}
+                                    onChange={(e) => setTempCycleVal(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') saveEdit('sat'); if (e.key === 'Escape') setEditingCycle(null); }}
+                                    autoFocus
+                                    style={{ padding: '2px 6px', fontSize: '12px', borderRadius: '4px', border: '1px solid var(--fa-blue)', outline: 'none' }}
+                                />
+                                <button onClick={() => saveEdit('sat')} style={{ border: 'none', background: '#1e8e3e', color: 'white', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '11px' }}>Save</button>
+                                <button onClick={() => setEditingCycle(null)} style={{ border: 'none', background: '#ccc', color: '#333', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '11px' }}>✕</button>
+                            </span>
+                        ) : (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                <span style={{ color: '#1a73e8', fontWeight: 'bold' }}>{satCycle}</span>
+                                {onCycleChange && (
+                                    <button
+                                        onClick={() => startEdit('sat', satCycle)}
+                                        style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#888', fontSize: '12px', padding: '0 2px' }}
+                                        title="Edit SAT/PSAT Cycle"
+                                    >
+                                        ✏️
+                                    </button>
+                                )}
+                            </span>
+                        )}
                     </div>
                 </div>
             </div>

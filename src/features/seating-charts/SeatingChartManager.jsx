@@ -1,13 +1,18 @@
 import React, { useState } from 'react';
+import { useAuth } from '../../context/AuthContext';
 import { useSeatingChartData } from './hooks/useSeatingChartData';
 import SeatingChartControls from './components/SeatingChartControls';
 import StaffManagementModal from './components/StaffManagementModal';
 import StudentDraggableList from './components/StudentDraggableList';
 import RoomSeatingGrid from './components/RoomSeatingGrid';
+import StudentNotificationModal from './components/StudentNotificationModal';
 
 const SeatingChartManager = ({ initialChart = null }) => {
+    const { user } = useAuth();
     const data = useSeatingChartData(initialChart);
     const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
+    const [isPodModalOpen, setIsPodModalOpen] = useState(false);
+    const [hideAccommodations, setHideAccommodations] = useState(false);
 
     // ------------------------------------
     // Drag & Drop Handlers
@@ -39,6 +44,20 @@ const SeatingChartManager = ({ initialChart = null }) => {
                 if (data.assignedSeats[`${targetSeatId}-0`]) {
                     finalSeatKey = `${targetSeatId}-1`;
                 }
+            }
+        } else if (seatType === 'pod') {
+            if (specificSlotIndex !== null) {
+                finalSeatKey = `${targetSeatId}-${specificSlotIndex}`;
+            } else {
+                // Find first available slot in this pod (0 to 7)
+                let firstEmpty = 0;
+                for (let i = 0; i < 8; i++) {
+                    if (!data.assignedSeats[`${targetSeatId}-${i}`]) {
+                        firstEmpty = i;
+                        break;
+                    }
+                }
+                finalSeatKey = `${targetSeatId}-${firstEmpty}`;
             }
         }
 
@@ -166,9 +185,12 @@ const SeatingChartManager = ({ initialChart = null }) => {
                 onSave={data.handleSave}
                 onClearRoom={data.handleClearRoom}
                 onCopyEmails={data.handleCopyEmails}
+                onOpenPodRoster={() => setIsPodModalOpen(true)}
                 onLoadChartDirect={data.handleLoadChartDirect}
                 onManageStaffTrigger={() => setIsStaffModalOpen(true)}
                 currentRoomLayout={data.currentRoomLayout}
+                hideAccommodations={hideAccommodations}
+                onToggleHideAccommodations={() => setHideAccommodations(prev => !prev)}
             />
 
             {/* Canvas Flex row */}
@@ -195,6 +217,7 @@ const SeatingChartManager = ({ initialChart = null }) => {
                         onDragStart={handleDragStart}
                         onDragOver={handleDragOver}
                         onDropSeat={handleDropSeat}
+                        hideAccommodations={hideAccommodations}
                     />
                 </div>
             </div>
@@ -207,6 +230,19 @@ const SeatingChartManager = ({ initialChart = null }) => {
                 onAddStaff={data.handleAddStaff}
                 onUpdateStaff={data.handleUpdateStaff}
                 onDeleteStaff={data.handleDeleteStaff}
+            />
+
+            {/* Student Notification & Pod Assignment Modal */}
+            <StudentNotificationModal
+                isOpen={isPodModalOpen}
+                onClose={() => setIsPodModalOpen(false)}
+                currentRoomLayout={data.currentRoomLayout}
+                assignedSeats={data.assignedSeats}
+                roomName={data.selectedRoomId}
+                testName={data.selectedApSubject || data.selectedTest}
+                date={data.selectedDate}
+                session={data.selectedSession}
+                senderEmail={user?.email || 'dshepard@fryeburgacademy.org'}
             />
 
         </div>

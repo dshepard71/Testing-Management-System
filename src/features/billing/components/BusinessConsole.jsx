@@ -9,9 +9,24 @@ import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 
 export default function BusinessConsole() {
     const [activeTab, setActiveTab] = useState('summary');
+
+    // Smart default cycle calculation
+    const getSmartDefaults = () => {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = now.getMonth() + 1; // 1-12
+        // School year: if month is August (8) or later, school year finishes in year+1
+        const schoolYearGrad = month >= 8 ? year + 1 : year;
+        const apDefault = `May ${schoolYearGrad}`;
+        const satDefault = (month >= 8 || month <= 1) ? `Fall ${year}` : `Spring ${year}`;
+        return { apDefault, satDefault };
+    };
+
+    const { apDefault, satDefault } = getSmartDefaults();
+
     const [billingSettings, setBillingSettings] = useState({
-        apCycle: 'February 2024',
-        satCycle: 'September 2024'
+        apCycle: apDefault,
+        satCycle: satDefault
     });
     const [pricing, setPricing] = useState(null);
 
@@ -20,8 +35,8 @@ export default function BusinessConsole() {
             if (docSnap.exists()) {
                 const data = docSnap.data();
                 setBillingSettings({
-                    apCycle: data.apCycle !== undefined ? data.apCycle : 'February 2024',
-                    satCycle: data.satCycle !== undefined ? data.satCycle : 'September 2024'
+                    apCycle: data.apCycle !== undefined && data.apCycle !== '' ? data.apCycle : apDefault,
+                    satCycle: data.satCycle !== undefined && data.satCycle !== '' ? data.satCycle : satDefault
                 });
             }
         });
@@ -96,11 +111,22 @@ export default function BusinessConsole() {
 
             {/* Main Content Area */}
             <div style={{ flex: 1 }}>
-                {activeTab === 'summary' && <FinancialSummaryView apCycle={billingSettings.apCycle} satCycle={billingSettings.satCycle} />}
+                {activeTab === 'summary' && (
+                    <FinancialSummaryView 
+                        apCycle={billingSettings.apCycle} 
+                        satCycle={billingSettings.satCycle} 
+                        onCycleChange={updateCycle}
+                    />
+                )}
                 {activeTab === 'unified' && <UnifiedBillingView pricing={pricing} />}
                 {activeTab === 'ap' && <APBillingView cycle={billingSettings.apCycle} onCycleChange={(v) => updateCycle('apCycle', v)} pricing={pricing} />}
                 {activeTab === 'sat' && <SATBillingView cycle={billingSettings.satCycle} onCycleChange={(v) => updateCycle('satCycle', v)} pricing={pricing} />}
-                {activeTab === 'pricing' && <PricingManager />}
+                {activeTab === 'pricing' && (
+                    <PricingManager 
+                        billingSettings={billingSettings} 
+                        onCycleChange={updateCycle} 
+                    />
+                )}
             </div>
         </div>
     );

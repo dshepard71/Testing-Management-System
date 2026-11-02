@@ -19,10 +19,13 @@ const SeatingChartControls = ({
     onSave,
     onClearRoom,
     onCopyEmails,
+    onOpenPodRoster,
     onLoadChartDirect,
     onManageStaffTrigger,
     saving,
-    currentRoomLayout
+    currentRoomLayout,
+    hideAccommodations,
+    onToggleHideAccommodations
 }) => {
     const [showSavedCharts, setShowSavedCharts] = useState(false);
     const [savedChartFilter, setSavedChartFilter] = useState('All');
@@ -385,11 +388,16 @@ const SeatingChartControls = ({
                 
                 {/* Dynamic Capacity Meter */}
                 {currentRoomLayout && (() => {
-                    const grid = currentRoomLayout.grid || [];
+                    let rawGrid = currentRoomLayout.grid || [];
+                    if (typeof rawGrid === 'string') {
+                        try { rawGrid = JSON.parse(rawGrid); } catch (e) { rawGrid = []; }
+                    }
+                    const flatCells = Array.isArray(rawGrid) ? rawGrid.flat(Infinity) : [];
                     let totalCapacity = 0;
-                    grid.forEach(cell => {
-                        if (cell === 'desk') totalCapacity += 1;
+                    flatCells.forEach(cell => {
+                        if (cell === 'desk' || cell === 'seat') totalCapacity += 1;
                         else if (cell === 'table') totalCapacity += 2;
+                        else if (cell === 'pod') totalCapacity += 8;
                     });
                     const assignedCount = Object.keys(assignedSeats).length;
                     const percent = totalCapacity > 0 ? Math.min(100, Math.round((assignedCount / totalCapacity) * 100)) : 0;
@@ -453,6 +461,48 @@ const SeatingChartControls = ({
                     }}
                 >
                     📋 Copy Emails
+                </button>
+                {currentRoomLayout && Object.keys(assignedSeats).length > 0 && (() => {
+                    let rawGrid = currentRoomLayout.grid || [];
+                    if (typeof rawGrid === 'string') {
+                        try { rawGrid = JSON.parse(rawGrid); } catch (e) { rawGrid = []; }
+                    }
+                    const flatCells = Array.isArray(rawGrid) ? rawGrid.flat(Infinity) : [];
+                    const hasPods = flatCells.includes('pod');
+                    return (
+                        <button
+                            onClick={onOpenPodRoster}
+                            style={{
+                                padding: '8px 16px',
+                                backgroundColor: hasPods ? '#f3e5f5' : 'rgba(0, 70, 139, 0.08)',
+                                color: hasPods ? '#6a1b9a' : 'var(--fa-dark-blue)',
+                                border: hasPods ? '1.5px solid #8e24aa' : '1px solid var(--fa-blue)',
+                                borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer',
+                                display: 'flex', alignItems: 'center', gap: '6px'
+                            }}
+                            title={hasPods ? "Email students by pod (BCC) and view pod tables" : "Send room location & details to assigned students (BCC)"}
+                        >
+                            <span>{hasPods ? '🟪' : '📧'}</span>
+                            <span>{hasPods ? 'Pod Roster & Notify' : 'Notify Students (BCC)'}</span>
+                        </button>
+                    );
+                })()}
+                <button
+                    type="button"
+                    onClick={onToggleHideAccommodations}
+                    style={{
+                        padding: '8px 16px',
+                        backgroundColor: hideAccommodations ? '#e8f0fe' : '#ffffff',
+                        color: hideAccommodations ? '#1a73e8' : 'var(--fa-dark-blue)',
+                        border: hideAccommodations ? '1.5px solid #1a73e8' : '1px solid #dadce0',
+                        borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', gap: '6px',
+                        transition: 'all 0.2s'
+                    }}
+                    title={hideAccommodations ? "Accommodations hidden (Public / Student View). Click to show accommodations." : "Accommodations visible (Proctor View). Click to hide accommodations."}
+                >
+                    <span>{hideAccommodations ? '🛡️' : '⚡'}</span>
+                    <span>{hideAccommodations ? 'Student / Public View' : 'Proctor View'}</span>
                 </button>
                 <button
                     onClick={() => window.print()}
